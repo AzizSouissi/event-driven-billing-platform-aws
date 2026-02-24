@@ -81,6 +81,9 @@ module "api" {
   stage_name  = var.api_stage_name
   auto_deploy = true
 
+  # Database
+  db_secret_arn = var.db_secret_arn
+
   # Throttling
   default_throttle_burst_limit = var.default_throttle_burst_limit
   default_throttle_rate_limit  = var.default_throttle_rate_limit

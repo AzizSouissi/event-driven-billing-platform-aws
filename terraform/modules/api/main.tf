@@ -105,9 +105,10 @@ resource "aws_lambda_function" "api" {
   environment {
     variables = merge(
       {
-        ENVIRONMENT = var.environment
-        PROJECT     = var.project
-        LOG_LEVEL   = var.environment == "prod" ? "WARN" : "DEBUG"
+        ENVIRONMENT   = var.environment
+        PROJECT       = var.project
+        LOG_LEVEL     = var.environment == "prod" ? "WARN" : "DEBUG"
+        DB_SECRET_ARN = var.db_secret_arn
       },
       each.value.environment_variables
     )

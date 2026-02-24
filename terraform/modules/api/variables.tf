@@ -93,6 +93,16 @@ variable "default_throttle_rate_limit" {
 }
 
 # ──────────────────────────────────────────────────────────────────────────── #
+# Database Configuration
+# ──────────────────────────────────────────────────────────────────────────── #
+
+variable "db_secret_arn" {
+  description = "ARN of the Secrets Manager secret containing DB credentials"
+  type        = string
+  default     = ""
+}
+
+# ──────────────────────────────────────────────────────────────────────────── #
 # Lambda Functions — Route → Function mapping
 # ──────────────────────────────────────────────────────────────────────────── #
 

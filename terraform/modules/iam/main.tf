@@ -81,6 +81,75 @@ resource "aws_iam_role_policy_attachment" "lambda_logging" {
 }
 
 # ──────────────────────────────────────────────────────────────────────────── #
+# Secrets Manager — Allow Lambda to read DB credentials
+# ──────────────────────────────────────────────────────────────────────────── #
+
+data "aws_iam_policy_document" "lambda_secrets" {
+  statement {
+    sid    = "AllowSecretsManagerRead"
+    effect = "Allow"
+
+    actions = [
+      "secretsmanager:GetSecretValue",
+    ]
+
+    resources = [
+      "arn:aws:secretsmanager:${var.aws_region}:${var.aws_account_id}:secret:${var.project}/${var.environment}/*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "lambda_secrets" {
+  name        = "${var.project}-${var.environment}-lambda-secrets"
+  description = "Allow Lambda to read secrets from Secrets Manager"
+  policy      = data.aws_iam_policy_document.lambda_secrets.json
+
+  tags = merge(var.tags, {
+    Name = "${var.project}-${var.environment}-lambda-secrets"
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_secrets" {
+  role       = aws_iam_role.lambda_execution.name
+  policy_arn = aws_iam_policy.lambda_secrets.arn
+}
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# SSM Parameter Store — Allow Lambda to read request schemas
+# ──────────────────────────────────────────────────────────────────────────── #
+
+data "aws_iam_policy_document" "lambda_ssm" {
+  statement {
+    sid    = "AllowSSMParameterRead"
+    effect = "Allow"
+
+    actions = [
+      "ssm:GetParameter",
+      "ssm:GetParameters",
+    ]
+
+    resources = [
+      "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:parameter/${var.project}/${var.environment}/*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "lambda_ssm" {
+  name        = "${var.project}-${var.environment}-lambda-ssm"
+  description = "Allow Lambda to read SSM parameters"
+  policy      = data.aws_iam_policy_document.lambda_ssm.json
+
+  tags = merge(var.tags, {
+    Name = "${var.project}-${var.environment}-lambda-ssm"
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_ssm" {
+  role       = aws_iam_role.lambda_execution.name
+  policy_arn = aws_iam_policy.lambda_ssm.arn
+}
+
+# ──────────────────────────────────────────────────────────────────────────── #
 # API Gateway CloudWatch Logging Role
 # ──────────────────────────────────────────────────────────────────────────── #
 

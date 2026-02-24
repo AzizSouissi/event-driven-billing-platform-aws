@@ -125,3 +125,13 @@ variable "default_throttle_rate_limit" {
   type        = number
   default     = 50
 }
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# Database
+# ──────────────────────────────────────────────────────────────────────────── #
+
+variable "db_secret_arn" {
+  description = "ARN of the Secrets Manager secret containing DB credentials"
+  type        = string
+  default     = ""
+}

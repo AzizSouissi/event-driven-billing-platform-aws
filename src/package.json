@@ -1,0 +1,28 @@
+{
+  "name": "billing-platform-lambdas",
+  "version": "1.0.0",
+  "description": "Lambda functions for the event-driven billing platform",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "lint": "eslint src/",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --coverage",
+    "test:watch": "node --experimental-vm-modules node_modules/.bin/jest --watch",
+    "build": "node scripts/build.js",
+    "migrate": "node scripts/migrate.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.500.0",
+    "pg": "^8.13.0",
+    "ajv": "^8.17.0",
+    "ajv-formats": "^3.0.0",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "eslint": "^9.0.0",
+    "esbuild": "^0.24.0"
+  }
+}
