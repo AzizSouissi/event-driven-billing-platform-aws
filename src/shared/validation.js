@@ -8,19 +8,19 @@
  * (deployed via CI/CD) — you can update schemas without redeploying functions.
  */
 
-const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
-const Ajv = require('ajv');
-const addFormats = require('ajv-formats');
-const { createLogger } = require('./logger');
+const { SSMClient, GetParameterCommand } = require("@aws-sdk/client-ssm");
+const Ajv = require("ajv");
+const addFormats = require("ajv-formats");
+const { createLogger } = require("./logger");
 
 const logger = createLogger();
-const ssm = new SSMClient({ region: process.env.AWS_REGION || 'us-east-1' });
+const ssm = new SSMClient({ region: process.env.AWS_REGION || "us-east-1" });
 
 const ajv = new Ajv({ allErrors: true, coerceTypes: false });
 addFormats(ajv);
 
-const PROJECT = process.env.PROJECT || 'billing-platform';
-const ENVIRONMENT = process.env.ENVIRONMENT || 'dev';
+const PROJECT = process.env.PROJECT || "billing-platform";
+const ENVIRONMENT = process.env.ENVIRONMENT || "dev";
 
 // Cache: schemaName → compiled ajv validate function
 const _schemaCache = new Map();
@@ -39,20 +39,24 @@ async function getSchemaValidator(schemaName) {
 
   try {
     const paramName = `/${PROJECT}/${ENVIRONMENT}/api/schemas/${schemaName}`;
-    logger.debug('Loading schema from SSM', { paramName });
+    logger.debug("Loading schema from SSM", { paramName });
 
-    const response = await ssm.send(new GetParameterCommand({ Name: paramName }));
+    const response = await ssm.send(
+      new GetParameterCommand({ Name: paramName }),
+    );
     const schema = JSON.parse(response.Parameter.Value);
     const validate = ajv.compile(schema);
 
     _schemaCache.set(schemaName, validate);
-    logger.info('Schema loaded and compiled', { schemaName });
+    logger.info("Schema loaded and compiled", { schemaName });
 
     return validate;
   } catch (err) {
     // If schema doesn't exist, log a warning and skip validation
-    if (err.name === 'ParameterNotFound') {
-      logger.warn('Schema not found in SSM — skipping validation', { schemaName });
+    if (err.name === "ParameterNotFound") {
+      logger.warn("Schema not found in SSM — skipping validation", {
+        schemaName,
+      });
       _schemaCache.set(schemaName, null);
       return null;
     }

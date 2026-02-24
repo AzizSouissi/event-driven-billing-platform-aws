@@ -3,8 +3,8 @@
  */
 
 module.exports = {
-  ...require('./logger'),
-  ...require('./db'),
-  ...require('./middleware'),
-  ...require('./validation'),
+  ...require("./logger"),
+  ...require("./db"),
+  ...require("./middleware"),
+  ...require("./validation"),
 };

@@ -25,18 +25,26 @@
  *     asynchronously for better throughput and reliability.
  */
 
-const { v4: uuidv4 } = require('uuid');
-const { withMiddleware, jsonResponse, AppError } = require('../../shared/middleware');
-const { queryWithTenant } = require('../../shared/db');
+const { v4: uuidv4 } = require("uuid");
+const {
+  withMiddleware,
+  jsonResponse,
+  AppError,
+} = require("../../shared/middleware");
+const { queryWithTenant } = require("../../shared/db");
 
 const VALID_EVENT_TYPES = new Set([
-  'api_call',
-  'storage_used',
-  'compute_time',
-  'custom',
+  "api_call",
+  "storage_used",
+  "compute_time",
+  "custom",
 ]);
 
-async function ingestEventHandler(event, context, { tenant, body, logger, requestId }) {
+async function ingestEventHandler(
+  event,
+  context,
+  { tenant, body, logger, requestId },
+) {
   const { tenantId } = tenant;
   const {
     event_type,
@@ -45,7 +53,7 @@ async function ingestEventHandler(event, context, { tenant, body, logger, reques
     timestamp: eventTimestamp,
   } = body;
 
-  logger.info('Ingesting billing event', { tenantId, eventType: event_type });
+  logger.info("Ingesting billing event", { tenantId, eventType: event_type });
 
   // ── Validate event type ──────────────────────────────────────────────── //
   if (!VALID_EVENT_TYPES.has(event_type)) {
@@ -55,8 +63,11 @@ async function ingestEventHandler(event, context, { tenant, body, logger, reques
   }
 
   // ── Validate payload has quantity ────────────────────────────────────── //
-  if (payload.quantity !== undefined && (typeof payload.quantity !== 'number' || payload.quantity < 0)) {
-    throw new AppError(400, 'payload.quantity must be a non-negative number');
+  if (
+    payload.quantity !== undefined &&
+    (typeof payload.quantity !== "number" || payload.quantity < 0)
+  ) {
+    throw new AppError(400, "payload.quantity must be a non-negative number");
   }
 
   // ── Idempotency check ───────────────────────────────────────────────── //
@@ -66,17 +77,17 @@ async function ingestEventHandler(event, context, { tenant, body, logger, reques
       `SELECT id FROM billing_events
        WHERE tenant_id = $1 AND idempotency_key = $2
        LIMIT 1`,
-      [tenantId, idempotency_key]
+      [tenantId, idempotency_key],
     );
 
     if (duplicate.rows.length > 0) {
-      logger.info('Duplicate event detected — returning existing', {
+      logger.info("Duplicate event detected — returning existing", {
         idempotencyKey: idempotency_key,
         existingEventId: duplicate.rows[0].id,
       });
 
       return jsonResponse(200, {
-        message: 'Event already processed (idempotent)',
+        message: "Event already processed (idempotent)",
         eventId: duplicate.rows[0].id,
         duplicate: true,
         requestId,
@@ -104,19 +115,19 @@ async function ingestEventHandler(event, context, { tenant, body, logger, reques
       idempotency_key || null,
       eventTimestamp ? new Date(eventTimestamp).toISOString() : now,
       now,
-    ]
+    ],
   );
 
   const created = result.rows[0];
 
-  logger.info('Billing event ingested', {
+  logger.info("Billing event ingested", {
     eventId,
     eventType: event_type,
     quantity: created.quantity,
   });
 
   return jsonResponse(201, {
-    message: 'Event ingested successfully',
+    message: "Event ingested successfully",
     event: {
       id: created.id,
       eventType: created.event_type,
@@ -129,6 +140,6 @@ async function ingestEventHandler(event, context, { tenant, body, logger, reques
 }
 
 module.exports.handler = withMiddleware(ingestEventHandler, {
-  schemaName: 'ingest-event',
+  schemaName: "ingest-event",
   requireBody: true,
 });

@@ -26,10 +26,14 @@
  *   • cursor:  opaque cursor for pagination
  */
 
-const { withMiddleware, jsonResponse, AppError } = require('../../shared/middleware');
-const { queryWithTenant } = require('../../shared/db');
+const {
+  withMiddleware,
+  jsonResponse,
+  AppError,
+} = require("../../shared/middleware");
+const { queryWithTenant } = require("../../shared/db");
 
-const VALID_STATUSES = new Set(['draft', 'issued', 'paid', 'overdue', 'void']);
+const VALID_STATUSES = new Set(["draft", "issued", "paid", "overdue", "void"]);
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
@@ -38,12 +42,12 @@ const MAX_LIMIT = 100;
  */
 function decodeCursor(cursor) {
   try {
-    const decoded = Buffer.from(cursor, 'base64url').toString('utf-8');
+    const decoded = Buffer.from(cursor, "base64url").toString("utf-8");
     const parsed = JSON.parse(decoded);
-    if (!parsed.createdAt || !parsed.id) throw new Error('Invalid cursor');
+    if (!parsed.createdAt || !parsed.id) throw new Error("Invalid cursor");
     return parsed;
   } catch {
-    throw new AppError(400, 'Invalid pagination cursor');
+    throw new AppError(400, "Invalid pagination cursor");
   }
 }
 
@@ -51,13 +55,19 @@ function decodeCursor(cursor) {
  * Encode { createdAt, id } into an opaque Base64 cursor.
  */
 function encodeCursor(row) {
-  return Buffer.from(JSON.stringify({
-    createdAt: row.created_at,
-    id: row.id,
-  })).toString('base64url');
+  return Buffer.from(
+    JSON.stringify({
+      createdAt: row.created_at,
+      id: row.id,
+    }),
+  ).toString("base64url");
 }
 
-async function generateInvoiceHandler(event, context, { tenant, queryParams, logger, requestId }) {
+async function generateInvoiceHandler(
+  event,
+  context,
+  { tenant, queryParams, logger, requestId },
+) {
   const { tenantId } = tenant;
 
   // ── Parse query parameters ──────────────────────────────────────────── //
@@ -84,10 +94,17 @@ async function generateInvoiceHandler(event, context, { tenant, queryParams, log
     throw new AppError(400, 'Invalid "to" date — use ISO 8601 format');
   }
 
-  logger.info('Listing invoices', { tenantId, status, from, to, limit, hasCursor: !!cursor });
+  logger.info("Listing invoices", {
+    tenantId,
+    status,
+    from,
+    to,
+    limit,
+    hasCursor: !!cursor,
+  });
 
   // ── Build query dynamically ─────────────────────────────────────────── //
-  const conditions = ['tenant_id = $1'];
+  const conditions = ["tenant_id = $1"];
   const params = [tenantId];
   let paramIndex = 2;
 
@@ -113,7 +130,7 @@ async function generateInvoiceHandler(event, context, { tenant, queryParams, log
     paramIndex += 2;
   }
 
-  const whereClause = conditions.join(' AND ');
+  const whereClause = conditions.join(" AND ");
 
   // Fetch one extra row to determine if there are more pages
   const query = `
@@ -134,23 +151,24 @@ async function generateInvoiceHandler(event, context, { tenant, queryParams, log
   const nextCursor = hasMore ? encodeCursor(rows[rows.length - 1]) : null;
 
   // ── Format response ─────────────────────────────────────────────────── //
-  const invoices = rows.map(row => ({
+  const invoices = rows.map((row) => ({
     id: row.id,
     subscriptionId: row.subscription_id,
     invoiceNumber: row.invoice_number,
     status: row.status,
     amount: parseFloat(row.amount),
     currency: row.currency,
-    lineItems: typeof row.line_items === 'string'
-      ? JSON.parse(row.line_items)
-      : row.line_items || [],
+    lineItems:
+      typeof row.line_items === "string"
+        ? JSON.parse(row.line_items)
+        : row.line_items || [],
     dueDate: row.due_date,
     paidAt: row.paid_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
 
-  logger.info('Invoices retrieved', {
+  logger.info("Invoices retrieved", {
     count: invoices.length,
     hasMore,
   });

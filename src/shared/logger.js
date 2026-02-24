@@ -14,7 +14,7 @@
 const LOG_LEVELS = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3 };
 
 class Logger {
-  constructor(context = {}, minLevel = process.env.LOG_LEVEL || 'INFO') {
+  constructor(context = {}, minLevel = process.env.LOG_LEVEL || "INFO") {
     this.context = context;
     this.minLevel = LOG_LEVELS[minLevel] ?? LOG_LEVELS.INFO;
   }
@@ -24,7 +24,9 @@ class Logger {
    * The parent context is preserved (shallow merge — child wins on conflict).
    */
   child(additionalContext) {
-    const levelName = Object.keys(LOG_LEVELS).find(k => LOG_LEVELS[k] === this.minLevel);
+    const levelName = Object.keys(LOG_LEVELS).find(
+      (k) => LOG_LEVELS[k] === this.minLevel,
+    );
     return new Logger({ ...this.context, ...additionalContext }, levelName);
   }
 
@@ -36,10 +38,18 @@ class Logger {
     return this;
   }
 
-  debug(message, data = {}) { this._log('DEBUG', message, data); }
-  info(message, data = {})  { this._log('INFO', message, data); }
-  warn(message, data = {})  { this._log('WARN', message, data); }
-  error(message, data = {}) { this._log('ERROR', message, data); }
+  debug(message, data = {}) {
+    this._log("DEBUG", message, data);
+  }
+  info(message, data = {}) {
+    this._log("INFO", message, data);
+  }
+  warn(message, data = {}) {
+    this._log("WARN", message, data);
+  }
+  error(message, data = {}) {
+    this._log("ERROR", message, data);
+  }
 
   _log(level, message, data) {
     if (LOG_LEVELS[level] < this.minLevel) return;
@@ -63,10 +73,10 @@ class Logger {
 
     // Use stdout for all levels — CloudWatch reads stdout
     const output = JSON.stringify(entry);
-    if (level === 'ERROR') {
-      process.stderr.write(output + '\n');
+    if (level === "ERROR") {
+      process.stderr.write(output + "\n");
     } else {
-      process.stdout.write(output + '\n');
+      process.stdout.write(output + "\n");
     }
   }
 }
@@ -76,7 +86,8 @@ class Logger {
  */
 function createLogger(lambdaContext = {}) {
   return new Logger({
-    functionName: lambdaContext.functionName || process.env.AWS_LAMBDA_FUNCTION_NAME,
+    functionName:
+      lambdaContext.functionName || process.env.AWS_LAMBDA_FUNCTION_NAME,
     functionVersion: lambdaContext.functionVersion,
     requestId: lambdaContext.awsRequestId,
     environment: process.env.ENVIRONMENT,

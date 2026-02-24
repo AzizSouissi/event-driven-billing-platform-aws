@@ -25,8 +25,8 @@
  *     are ever sent to the client.
  */
 
-const { createLogger } = require('./logger');
-const { getSchemaValidator } = require('./validation');
+const { createLogger } = require("./logger");
+const { getSchemaValidator } = require("./validation");
 
 /**
  * Application error with HTTP status code.
@@ -35,7 +35,7 @@ const { getSchemaValidator } = require('./validation');
 class AppError extends Error {
   constructor(statusCode, message, details = null) {
     super(message);
-    this.name = 'AppError';
+    this.name = "AppError";
     this.statusCode = statusCode;
     this.details = details;
   }
@@ -48,18 +48,25 @@ function extractTenantContext(event) {
   const claims = event.requestContext?.authorizer?.jwt?.claims;
 
   if (!claims) {
-    throw new AppError(401, 'Missing authorization claims');
+    throw new AppError(401, "Missing authorization claims");
   }
 
-  const tenantId = claims['custom:tenant_id'];
+  const tenantId = claims["custom:tenant_id"];
   if (!tenantId) {
-    throw new AppError(403, 'Missing tenant_id claim — user not assigned to a tenant');
+    throw new AppError(
+      403,
+      "Missing tenant_id claim — user not assigned to a tenant",
+    );
   }
 
   // Parse groups — Cognito sends as a string "[ADMIN, USER]" or a JSON array
-  let groups = claims['cognito:groups'] || [];
-  if (typeof groups === 'string') {
-    groups = groups.replace(/[\[\]]/g, '').split(',').map(g => g.trim()).filter(Boolean);
+  let groups = claims["cognito:groups"] || [];
+  if (typeof groups === "string") {
+    groups = groups
+      .replace(/[\[\]]/g, "")
+      .split(",")
+      .map((g) => g.trim())
+      .filter(Boolean);
   }
 
   return {
@@ -67,7 +74,7 @@ function extractTenantContext(event) {
     userId: claims.sub,
     email: claims.email,
     groups,
-    isAdmin: groups.includes('ADMIN'),
+    isAdmin: groups.includes("ADMIN"),
   };
 }
 
@@ -77,22 +84,22 @@ function extractTenantContext(event) {
  */
 async function parseAndValidateBody(event, schemaName) {
   if (!event.body) {
-    throw new AppError(400, 'Request body is required');
+    throw new AppError(400, "Request body is required");
   }
 
   let body;
   try {
-    body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+    body = typeof event.body === "string" ? JSON.parse(event.body) : event.body;
   } catch {
-    throw new AppError(400, 'Invalid JSON in request body');
+    throw new AppError(400, "Invalid JSON in request body");
   }
 
   if (schemaName) {
     const validate = await getSchemaValidator(schemaName);
     if (validate && !validate(body)) {
-      throw new AppError(400, 'Request validation failed', {
-        errors: validate.errors.map(e => ({
-          field: e.instancePath || '/',
+      throw new AppError(400, "Request validation failed", {
+        errors: validate.errors.map((e) => ({
+          field: e.instancePath || "/",
           message: e.message,
           params: e.params,
         })),
@@ -110,9 +117,9 @@ function jsonResponse(statusCode, body) {
   return {
     statusCode,
     headers: {
-      'Content-Type': 'application/json',
-      'X-Content-Type-Options': 'nosniff',
-      'Cache-Control': 'no-store',
+      "Content-Type": "application/json",
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "no-store",
     },
     body: JSON.stringify(body),
   };
@@ -144,7 +151,7 @@ function withMiddleware(handler, options = {}) {
       const tenant = extractTenantContext(event);
       logger.withContext({ tenantId: tenant.tenantId, userId: tenant.userId });
 
-      logger.info('Request received', {
+      logger.info("Request received", {
         method: event.requestContext?.http?.method,
         path: event.requestContext?.http?.path,
         routeKey: event.routeKey,
@@ -152,13 +159,14 @@ function withMiddleware(handler, options = {}) {
 
       // ── Admin check ─────────────────────────────────────────────────── //
       if (options.requireAdmin && !tenant.isAdmin) {
-        throw new AppError(403, 'This operation requires ADMIN role');
+        throw new AppError(403, "This operation requires ADMIN role");
       }
 
       // ── Body parsing + validation ───────────────────────────────────── //
       let body = null;
       const method = event.requestContext?.http?.method;
-      const needsBody = options.requireBody ?? ['POST', 'PUT', 'PATCH'].includes(method);
+      const needsBody =
+        options.requireBody ?? ["POST", "PUT", "PATCH"].includes(method);
 
       if (needsBody) {
         body = await parseAndValidateBody(event, options.schemaName);
@@ -176,16 +184,15 @@ function withMiddleware(handler, options = {}) {
         requestId,
       });
 
-      logger.info('Request completed', {
+      logger.info("Request completed", {
         statusCode: result.statusCode,
       });
 
       return result;
-
     } catch (err) {
       // ── Error handling ──────────────────────────────────────────────── //
       if (err instanceof AppError) {
-        logger.warn('Application error', {
+        logger.warn("Application error", {
           statusCode: err.statusCode,
           message: err.message,
           details: err.details,
@@ -199,10 +206,10 @@ function withMiddleware(handler, options = {}) {
       }
 
       // Unknown / unexpected error — do NOT expose details to the client
-      logger.error('Unhandled error', { error: err });
+      logger.error("Unhandled error", { error: err });
 
       return jsonResponse(500, {
-        error: 'Internal server error',
+        error: "Internal server error",
         requestId,
       });
     }

@@ -21,26 +21,34 @@
  *   • Provisioned Concurrency can eliminate cold starts for critical paths.
  */
 
-const { v4: uuidv4 } = require('uuid');
-const { withMiddleware, jsonResponse, AppError } = require('../../shared/middleware');
-const { querySystem } = require('../../shared/db');
+const { v4: uuidv4 } = require("uuid");
+const {
+  withMiddleware,
+  jsonResponse,
+  AppError,
+} = require("../../shared/middleware");
+const { querySystem } = require("../../shared/db");
 
-async function createTenantHandler(event, context, { tenant, body, logger, requestId }) {
-  logger.info('Creating new tenant', { tenantName: body.name });
+async function createTenantHandler(
+  event,
+  context,
+  { tenant, body, logger, requestId },
+) {
+  logger.info("Creating new tenant", { tenantName: body.name });
 
   // ── Authorization: only ADMIN users can create tenants ───────────────── //
   if (!tenant.isAdmin) {
-    throw new AppError(403, 'Only administrators can create tenants');
+    throw new AppError(403, "Only administrators can create tenants");
   }
 
   // ── Check for duplicate tenant name ──────────────────────────────────── //
   const existing = await querySystem(
-    'SELECT id FROM tenants WHERE LOWER(name) = LOWER($1) AND status != $2',
-    [body.name, 'deleted']
+    "SELECT id FROM tenants WHERE LOWER(name) = LOWER($1) AND status != $2",
+    [body.name, "deleted"],
   );
 
   if (existing.rows.length > 0) {
-    throw new AppError(409, 'A tenant with this name already exists', {
+    throw new AppError(409, "A tenant with this name already exists", {
       existingTenantId: existing.rows[0].id,
     });
   }
@@ -57,33 +65,34 @@ async function createTenantHandler(event, context, { tenant, body, logger, reque
       tenantId,
       body.name,
       body.email,
-      body.plan || 'free',
-      'active',
+      body.plan || "free",
+      "active",
       JSON.stringify(body.settings || {}),
       tenant.userId,
       now,
       now,
-    ]
+    ],
   );
 
   const created = result.rows[0];
 
-  logger.info('Tenant created successfully', {
+  logger.info("Tenant created successfully", {
     newTenantId: tenantId,
     plan: created.plan,
   });
 
   return jsonResponse(201, {
-    message: 'Tenant created successfully',
+    message: "Tenant created successfully",
     tenant: {
       id: created.id,
       name: created.name,
       email: created.email,
       plan: created.plan,
       status: created.status,
-      settings: typeof created.settings === 'string'
-        ? JSON.parse(created.settings)
-        : created.settings,
+      settings:
+        typeof created.settings === "string"
+          ? JSON.parse(created.settings)
+          : created.settings,
       createdAt: created.created_at,
     },
     requestId,
@@ -92,6 +101,6 @@ async function createTenantHandler(event, context, { tenant, body, logger, reque
 
 // Wrap with middleware — schema validation uses SSM schema "create-tenant"
 module.exports.handler = withMiddleware(createTenantHandler, {
-  schemaName: 'create-tenant',
+  schemaName: "create-tenant",
   requireBody: true,
 });

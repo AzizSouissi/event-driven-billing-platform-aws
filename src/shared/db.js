@@ -38,9 +38,12 @@
  *     to return a proper error response instead of a timeout.
  */
 
-const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
-const { Pool } = require('pg');
-const { createLogger } = require('./logger');
+const {
+  SecretsManagerClient,
+  GetSecretValueCommand,
+} = require("@aws-sdk/client-secrets-manager");
+const { Pool } = require("pg");
+const { createLogger } = require("./logger");
 
 const logger = createLogger();
 
@@ -49,7 +52,7 @@ let _pool = null;
 let _cachedSecret = null;
 
 const SECRET_ARN = process.env.DB_SECRET_ARN;
-const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
+const AWS_REGION = process.env.AWS_REGION || "us-east-1";
 
 /**
  * Fetch DB credentials from Secrets Manager (cached after first call).
@@ -60,11 +63,13 @@ async function getDbCredentials() {
   const client = new SecretsManagerClient({ region: AWS_REGION });
   const command = new GetSecretValueCommand({ SecretId: SECRET_ARN });
 
-  logger.info('Fetching DB credentials from Secrets Manager', { secretArn: SECRET_ARN });
+  logger.info("Fetching DB credentials from Secrets Manager", {
+    secretArn: SECRET_ARN,
+  });
   const response = await client.send(command);
   _cachedSecret = JSON.parse(response.SecretString);
 
-  logger.info('DB credentials retrieved successfully', {
+  logger.info("DB credentials retrieved successfully", {
     host: _cachedSecret.host,
     dbname: _cachedSecret.dbname,
     username: _cachedSecret.username,
@@ -91,13 +96,13 @@ async function getPool() {
     password: creds.password,
 
     // ── Connection limits ──────────────────────────────────────────────── //
-    max: 2,                    // Low — many Lambda containers share one RDS
-    min: 0,                    // Don't pre-create connections
-    idleTimeoutMillis: 60000,  // Release idle connections after 60s
+    max: 2, // Low — many Lambda containers share one RDS
+    min: 0, // Don't pre-create connections
+    idleTimeoutMillis: 60000, // Release idle connections after 60s
     connectionTimeoutMillis: 5000, // Fail fast if RDS is unreachable
 
     // ── Query safety ───────────────────────────────────────────────────── //
-    statement_timeout: 8000,   // Kill queries after 8s (Lambda timeout is 10s)
+    statement_timeout: 8000, // Kill queries after 8s (Lambda timeout is 10s)
 
     // ── SSL ────────────────────────────────────────────────────────────── //
     ssl: {
@@ -106,10 +111,12 @@ async function getPool() {
   });
 
   // Log pool events for observability
-  _pool.on('connect', () => logger.debug('New DB connection established'));
-  _pool.on('error', (err) => logger.error('Unexpected pool error', { error: err }));
+  _pool.on("connect", () => logger.debug("New DB connection established"));
+  _pool.on("error", (err) =>
+    logger.error("Unexpected pool error", { error: err }),
+  );
 
-  logger.info('Connection pool created', {
+  logger.info("Connection pool created", {
     host: creds.host,
     database: creds.dbname,
     maxConnections: 2,
@@ -135,17 +142,19 @@ async function queryWithTenant(tenantId, text, params = []) {
   const client = await pool.connect();
 
   try {
-    await client.query('BEGIN');
+    await client.query("BEGIN");
 
     // Set tenant context for RLS policies — LOCAL scopes to this transaction
-    await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+    await client.query("SELECT set_config('app.tenant_id', $1, true)", [
+      tenantId,
+    ]);
 
     const result = await client.query(text, params);
 
-    await client.query('COMMIT');
+    await client.query("COMMIT");
     return result;
   } catch (err) {
-    await client.query('ROLLBACK');
+    await client.query("ROLLBACK");
     throw err;
   } finally {
     client.release();
@@ -169,18 +178,20 @@ async function transactionWithTenant(tenantId, queries) {
   const client = await pool.connect();
 
   try {
-    await client.query('BEGIN');
-    await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.tenant_id', $1, true)", [
+      tenantId,
+    ]);
 
     const results = [];
     for (const { text, params } of queries) {
       results.push(await client.query(text, params || []));
     }
 
-    await client.query('COMMIT');
+    await client.query("COMMIT");
     return results;
   } catch (err) {
-    await client.query('ROLLBACK');
+    await client.query("ROLLBACK");
     throw err;
   } finally {
     client.release();
@@ -196,7 +207,7 @@ async function closePool() {
     await _pool.end();
     _pool = null;
     _cachedSecret = null;
-    logger.info('Connection pool closed');
+    logger.info("Connection pool closed");
   }
 }
 
