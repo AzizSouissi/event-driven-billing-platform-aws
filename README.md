@@ -827,18 +827,15 @@ Multi-tenant SaaS requires per-tenant visibility. Our custom metrics include `Te
 #### Encryption & Security
 
 ```mermaid
-block-beta
-    columns 1
-    block:layers["Defense-in-Depth Layers"]
-        L1["1. VPC Isolation — Private subnets only, no public access"]
-        L2["2. Security Group — Port 5432 from Lambda SG only"]
-        L3["3. TLS Enforcement — rds.force_ssl = 1"]
-        L4["4. KMS Encryption — Storage + secrets encrypted with CMK"]
-        L5["5. Secrets Manager — Auto-managed master password, rotatable"]
-        L6["6. IAM DB Auth — Enabled for future token-based access"]
-        L7["7. RLS Policies — Row-Level Security at PostgreSQL level"]
-        L8["8. Statement Timeout — 30s DB-level, 8s app-level"]
-    end
+flowchart TD
+    A["1. VPC Isolation<br/>Private subnets only<br/>No public access"]
+    B["2. Security Group<br/>Port 5432 allowed<br/>From Lambda SG only"]
+    C["3. TLS Enforcement<br/>rds.force_ssl = 1<br/>(DB Parameter Group)"]
+    D["4. KMS Encryption<br/>Storage encrypted<br/>Secrets encrypted (CMK)"]
+    E["5. AWS Secrets Manager<br/>Auto-managed master password<br/>Rotation enabled"]
+    F["6. IAM DB Authentication<br/>Token-based auth ready"]
+    G["7. Row-Level Security (RLS)<br/>PostgreSQL policy enforcement"]
+    H["8. Statement Timeout<br/>30s DB-level<br/>8s App-level"]
 ```
 
 #### Monitoring Built-In
