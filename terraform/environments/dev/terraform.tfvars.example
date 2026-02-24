@@ -10,3 +10,15 @@ public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
 private_subnet_cidrs = ["10.0.101.0/24", "10.0.102.0/24"]
 
 db_port = 5432
+
+# Auth / Cognito
+allow_admin_create_user_only  = true
+password_minimum_length       = 12
+advanced_security_mode        = "AUDIT"
+access_token_validity_minutes = 60
+id_token_validity_minutes     = 60
+refresh_token_validity_days   = 30
+callback_urls                 = ["http://localhost:3000/callback"]
+logout_urls                   = ["http://localhost:3000"]
+cors_allow_origins            = ["http://localhost:3000"]
+log_retention_days            = 30

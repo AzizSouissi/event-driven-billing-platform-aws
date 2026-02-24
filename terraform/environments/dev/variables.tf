@@ -39,3 +39,67 @@ variable "db_port" {
   type        = number
   default     = 5432
 }
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# Auth / Cognito
+# ──────────────────────────────────────────────────────────────────────────── #
+
+variable "allow_admin_create_user_only" {
+  description = "Only admins can create users"
+  type        = bool
+  default     = true
+}
+
+variable "password_minimum_length" {
+  description = "Minimum password length"
+  type        = number
+  default     = 12
+}
+
+variable "advanced_security_mode" {
+  description = "Cognito advanced security: OFF, AUDIT, ENFORCED"
+  type        = string
+  default     = "AUDIT"
+}
+
+variable "access_token_validity_minutes" {
+  description = "Access token lifetime in minutes"
+  type        = number
+  default     = 60
+}
+
+variable "id_token_validity_minutes" {
+  description = "ID token lifetime in minutes"
+  type        = number
+  default     = 60
+}
+
+variable "refresh_token_validity_days" {
+  description = "Refresh token lifetime in days"
+  type        = number
+  default     = 30
+}
+
+variable "callback_urls" {
+  description = "OAuth2 callback URLs"
+  type        = list(string)
+  default     = ["http://localhost:3000/callback"]
+}
+
+variable "logout_urls" {
+  description = "OAuth2 logout redirect URLs"
+  type        = list(string)
+  default     = ["http://localhost:3000"]
+}
+
+variable "cors_allow_origins" {
+  description = "CORS allowed origins for the HTTP API"
+  type        = list(string)
+  default     = ["http://localhost:3000"]
+}
+
+variable "log_retention_days" {
+  description = "CloudWatch log retention in days"
+  type        = number
+  default     = 30
+}

@@ -51,3 +51,34 @@ output "apigw_cloudwatch_role_arn" {
   description = "API Gateway CloudWatch role ARN"
   value       = module.iam.apigw_cloudwatch_role_arn
 }
+
+# Auth / Cognito
+output "cognito_user_pool_id" {
+  description = "Cognito User Pool ID"
+  value       = module.auth.user_pool_id
+}
+
+output "cognito_app_client_id" {
+  description = "Cognito App Client ID (public)"
+  value       = module.auth.app_client_id
+}
+
+output "cognito_hosted_ui_url" {
+  description = "Cognito hosted UI URL"
+  value       = module.auth.hosted_ui_url
+}
+
+output "cognito_jwks_uri" {
+  description = "JWKS URI for JWT verification"
+  value       = module.auth.jwks_uri
+}
+
+output "api_endpoint" {
+  description = "HTTP API Gateway invoke URL"
+  value       = module.auth.api_endpoint
+}
+
+output "api_authorizer_id" {
+  description = "JWT authorizer ID for route attachment"
+  value       = module.auth.authorizer_id
+}
