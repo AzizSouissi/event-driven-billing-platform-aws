@@ -41,9 +41,15 @@
 #     cross-account access control.
 #
 #   • MESSAGE FILTERING:
-#     SNS supports filter policies per subscription.  Currently all three
-#     consumers receive all events.  To add event-type filtering later,
-#     add `filter_policy` to the aws_sns_topic_subscription resources.
+#     SNS filter policies route events to the right consumer based on the
+#     `eventType` MessageAttribute.  Each consumer declares which event
+#     patterns it cares about:
+#       – generate-invoice: subscription.created (heavy processing)
+#       – send-notification: all subscription.* events (user-facing)
+#       – audit-log: all events (compliance record of everything)
+#     When `raw_message_delivery = true`, filter policies match on
+#     MessageAttributes (not the message body).  Publishers must include
+#     an `eventType` string attribute on every SNS Publish call.
 #
 #   • CONSUMER LAMBDAS:
 #     Deployed with placeholder code (replaced by CI/CD).  Each function
@@ -60,6 +66,10 @@ resource "aws_sns_topic" "subscription_events" {
 
   # Server-side encryption
   kms_master_key_id = "alias/aws/sns"
+
+  # X-Ray distributed tracing — propagates trace headers through SNS → SQS
+  # so downstream consumer Lambdas share the same trace ID as the publisher
+  tracing_config = var.enable_xray_tracing ? "Active" : "PassThrough"
 
   tags = merge(var.tags, {
     Name = "${var.project}-${var.environment}-subscription-events"
@@ -121,22 +131,32 @@ locals {
       batch_size     = 1   # Process one subscription at a time (invoice is heavy)
       max_receive    = 5
       needs_vpc      = true
+      # Only process subscription creation events (heavy operation)
+      filter_policy  = {
+        eventType = ["subscription.created"]
+      }
     }
     send-notification = {
-      description    = "Send email notification on subscription creation"
+      description    = "Send email notification on subscription events"
       timeout        = 15
       memory_size    = 128
       batch_size     = 5   # Batch notifications for efficiency
       max_receive    = 3
       needs_vpc      = false  # Calls SES, not RDS
+      # Notify on all subscription lifecycle events
+      filter_policy  = {
+        eventType = [{ "prefix" = "subscription." }]
+      }
     }
     audit-log = {
-      description    = "Write audit log entry for subscription events"
+      description    = "Write audit log entry for all events"
       timeout        = 15
       memory_size    = 128
       batch_size     = 10  # Batch audit writes for throughput
       max_receive    = 5
       needs_vpc      = true
+      # Audit everything — no filter (empty map = all messages)
+      filter_policy  = {}
     }
   }
 }
@@ -245,6 +265,12 @@ resource "aws_sns_topic_subscription" "sqs" {
   protocol             = "sqs"
   endpoint             = aws_sqs_queue.processing[each.key].arn
   raw_message_delivery = true  # Skip SNS envelope — cleaner for Lambda parsing
+
+  # Event-type routing — filter on MessageAttributes.eventType
+  # Empty filter_policy = receive all messages (audit-log).
+  # Non-empty = only matching events are delivered to this consumer.
+  filter_policy_scope = "MessageAttributes"
+  filter_policy       = length(each.value.filter_policy) > 0 ? jsonencode(each.value.filter_policy) : null
 }
 
 # ──────────────────────────────────────────────────────────────────────────── #
@@ -296,6 +322,12 @@ resource "aws_lambda_function" "consumer" {
   filename         = data.archive_file.consumer_placeholder.output_path
   source_code_hash = data.archive_file.consumer_placeholder.output_base64sha256
 
+  # X-Ray distributed tracing — captures SQS → Lambda segments and
+  # propagates trace context from upstream SNS publisher
+  tracing_config {
+    mode = var.enable_xray_tracing ? "Active" : "PassThrough"
+  }
+
   # VPC configuration — only for consumers that need DB access
   dynamic "vpc_config" {
     for_each = each.value.needs_vpc ? [1] : []
@@ -307,11 +339,12 @@ resource "aws_lambda_function" "consumer" {
 
   environment {
     variables = {
-      ENVIRONMENT   = var.environment
-      PROJECT       = var.project
-      LOG_LEVEL     = var.environment == "prod" ? "WARN" : "DEBUG"
-      DB_SECRET_ARN = var.db_secret_arn
-      SNS_TOPIC_ARN = aws_sns_topic.subscription_events.arn
+      ENVIRONMENT        = var.environment
+      PROJECT            = var.project
+      LOG_LEVEL          = var.environment == "prod" ? "WARN" : "DEBUG"
+      DB_SECRET_ARN      = var.db_secret_arn
+      SNS_TOPIC_ARN      = aws_sns_topic.subscription_events.arn
+      RDS_PROXY_ENDPOINT = var.rds_proxy_endpoint
     }
   }
 

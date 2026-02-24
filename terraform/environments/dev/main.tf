@@ -96,6 +96,9 @@ module "api" {
   # SNS topic for event-driven consumers
   sns_topic_arn = module.events.sns_topic_arn
 
+  # RDS Proxy — Lambda connects through proxy for connection pooling
+  rds_proxy_endpoint = module.rds_proxy.proxy_endpoint
+
   # Throttling
   default_throttle_burst_limit = var.default_throttle_burst_limit
   default_throttle_rate_limit  = var.default_throttle_rate_limit
@@ -226,6 +229,9 @@ module "api" {
   lambda_log_retention_days = var.log_retention_days
   api_log_retention_days    = var.log_retention_days
 
+  # X-Ray distributed tracing
+  enable_xray_tracing = var.enable_xray_tracing
+
   tags = local.common_tags
 }
 
@@ -246,8 +252,14 @@ module "events" {
   # Database
   db_secret_arn = module.rds.master_user_secret_arn
 
+  # RDS Proxy — consumer Lambdas connect through proxy for connection pooling
+  rds_proxy_endpoint = module.rds_proxy.proxy_endpoint
+
   # Logging
   log_retention_days = var.log_retention_days
+
+  # X-Ray distributed tracing (Lambda consumers + SNS topic)
+  enable_xray_tracing = var.enable_xray_tracing
 
   tags = local.common_tags
 }
@@ -287,6 +299,40 @@ module "rds" {
   performance_insights_retention_days = 7
   enhanced_monitoring_interval        = 60
   log_retention_days                  = var.log_retention_days
+
+  tags = local.common_tags
+}
+
+# ---------- RDS Proxy (Lambda connection pooling) -------------------------- #
+module "rds_proxy" {
+  source = "../../modules/rds-proxy"
+
+  project     = var.project
+  environment = var.environment
+
+  # Network (same VPC / subnets as Aurora)
+  vpc_id                   = module.vpc.vpc_id
+  private_subnet_ids       = module.vpc.private_subnet_ids
+  lambda_security_group_id = module.vpc.lambda_security_group_id
+  rds_security_group_id    = module.vpc.rds_security_group_id
+  db_port                  = var.db_port
+
+  # Aurora references
+  cluster_identifier = module.rds.cluster_id
+  db_secret_arns     = [module.rds.master_user_secret_arn]
+  kms_key_arn        = module.rds.kms_key_arn
+
+  # Proxy tuning (relaxed for dev)
+  require_tls                 = true
+  idle_client_timeout         = 1800  # 30 min
+  debug_logging               = true  # Verbose in dev, disable in prod
+  max_connections_percent     = 100
+  max_idle_connections_percent = 50
+  connection_borrow_timeout   = 120
+  session_pinning_filters     = ["EXCLUDE_VARIABLE_SETS"]
+
+  # Logging
+  log_retention_days = var.log_retention_days
 
   tags = local.common_tags
 }
@@ -339,8 +385,14 @@ module "pre_token" {
   # Database credentials
   db_secret_arn = module.rds.master_user_secret_arn
 
+  # RDS Proxy — pre-token Lambda also connects through proxy
+  rds_proxy_endpoint = module.rds_proxy.proxy_endpoint
+
   # Logging
   log_retention_days = var.log_retention_days
+
+  # X-Ray distributed tracing
+  enable_xray_tracing = var.enable_xray_tracing
 
   tags = local.common_tags
 }
@@ -353,6 +405,36 @@ resource "aws_lambda_permission" "cognito_pre_token" {
   function_name = module.pre_token.function_name
   principal     = "cognito-idp.amazonaws.com"
   source_arn    = module.auth.user_pool_arn
+}
+
+# ---------- DLQ Reprocessor ----------------------------------------------- #
+module "dlq_reprocessor" {
+  source = "../../modules/dlq-reprocessor"
+
+  project     = var.project
+  environment = var.environment
+
+  # IAM
+  lambda_execution_role_arn = module.iam.lambda_execution_role_arn
+  lambda_execution_role_id  = module.iam.lambda_execution_role_name
+
+  # Queue mappings — DLQ → processing queue for each consumer
+  queue_map = {
+    for name in keys(module.events.processing_queue_urls) : name => {
+      dlq_url          = module.events.dlq_urls[name]
+      target_queue_url = module.events.processing_queue_urls[name]
+    }
+  }
+
+  processing_queue_arns = module.events.processing_queue_arns
+
+  # Logging
+  log_retention_days = var.log_retention_days
+
+  # X-Ray distributed tracing
+  enable_xray_tracing = var.enable_xray_tracing
+
+  tags = local.common_tags
 }
 
 # ---------- WAF (API Gateway Protection) ---------------------------------- #
@@ -391,11 +473,12 @@ module "observability" {
   environment = var.environment
   aws_region  = var.aws_region
 
-  # All Lambda function names (API + event consumers + pre-token)
+  # All Lambda function names (API + event consumers + pre-token + dlq-reprocessor)
   lambda_function_names = concat(
     values(module.api.lambda_function_names),
     values(module.events.consumer_function_names),
     [module.pre_token.function_name],
+    [module.dlq_reprocessor.function_name],
   )
 
   # All Lambda log group names for metric filters
@@ -407,6 +490,7 @@ module "observability" {
       ) : "/aws/lambda/${fn_name}"
     ],
     [module.pre_token.log_group_name],
+    [module.dlq_reprocessor.log_group_name],
   )
 
   # API Gateway

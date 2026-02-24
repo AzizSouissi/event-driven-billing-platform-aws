@@ -72,6 +72,11 @@ resource "aws_lambda_function" "pre_token" {
   filename         = data.archive_file.placeholder.output_path
   source_code_hash = data.archive_file.placeholder.output_base64sha256
 
+  # X-Ray distributed tracing
+  tracing_config {
+    mode = var.enable_xray_tracing ? "Active" : "PassThrough"
+  }
+
   # VPC configuration — needs DB access for tenant lookup
   vpc_config {
     subnet_ids         = var.private_subnet_ids
@@ -80,10 +85,11 @@ resource "aws_lambda_function" "pre_token" {
 
   environment {
     variables = {
-      ENVIRONMENT   = var.environment
-      PROJECT       = var.project
-      LOG_LEVEL     = var.environment == "prod" ? "WARN" : "DEBUG"
-      DB_SECRET_ARN = var.db_secret_arn
+      ENVIRONMENT        = var.environment
+      PROJECT            = var.project
+      LOG_LEVEL          = var.environment == "prod" ? "WARN" : "DEBUG"
+      DB_SECRET_ARN      = var.db_secret_arn
+      RDS_PROXY_ENDPOINT = var.rds_proxy_endpoint
     }
   }
 

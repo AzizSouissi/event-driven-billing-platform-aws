@@ -108,6 +108,12 @@ variable "sns_topic_arn" {
   default     = ""
 }
 
+variable "rds_proxy_endpoint" {
+  description = "RDS Proxy endpoint — Lambda connects here instead of directly to Aurora (empty = connect directly)"
+  type        = string
+  default     = ""
+}
+
 # ──────────────────────────────────────────────────────────────────────────── #
 # Lambda Functions — Route → Function mapping
 # ──────────────────────────────────────────────────────────────────────────── #
@@ -155,4 +161,14 @@ variable "api_log_retention_days" {
   description = "CloudWatch log retention for API Gateway access logs"
   type        = number
   default     = 30
+}
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# X-Ray Distributed Tracing
+# ──────────────────────────────────────────────────────────────────────────── #
+
+variable "enable_xray_tracing" {
+  description = "Enable X-Ray active tracing on Lambda functions"
+  type        = bool
+  default     = true
 }

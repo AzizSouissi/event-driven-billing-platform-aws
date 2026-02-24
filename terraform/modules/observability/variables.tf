@@ -141,3 +141,25 @@ variable "api_5xx_threshold" {
   type        = number
   default     = 10
 }
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# Anomaly Detection — API Latency
+# ──────────────────────────────────────────────────────────────────────────── #
+
+variable "anomaly_detection_band_width" {
+  description = "Anomaly detection band width (standard deviations). Higher = fewer false positives, lower sensitivity."
+  type        = number
+  default     = 2
+}
+
+variable "anomaly_detection_period" {
+  description = "Anomaly detection metric evaluation period in seconds"
+  type        = number
+  default     = 300
+}
+
+variable "anomaly_detection_evaluation_periods" {
+  description = "Number of consecutive periods latency must exceed anomaly band"
+  type        = number
+  default     = 3
+}

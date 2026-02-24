@@ -205,3 +205,30 @@ output "pre_token_function_arn" {
   description = "Pre-token-generation Lambda function ARN"
   value       = module.pre_token.function_arn
 }
+
+# RDS Proxy
+output "rds_proxy_endpoint" {
+  description = "RDS Proxy endpoint — Lambda connects through here for connection pooling"
+  value       = module.rds_proxy.proxy_endpoint
+}
+
+output "rds_proxy_name" {
+  description = "RDS Proxy name"
+  value       = module.rds_proxy.proxy_name
+}
+
+# DLQ Reprocessor
+output "dlq_reprocessor_function_name" {
+  description = "DLQ reprocessor Lambda function name (invoke manually to replay failed messages)"
+  value       = module.dlq_reprocessor.function_name
+}
+
+output "dlq_reprocessor_function_arn" {
+  description = "DLQ reprocessor Lambda function ARN"
+  value       = module.dlq_reprocessor.function_arn
+}
+
+output "dlq_urls" {
+  description = "Map of consumer name → DLQ URL (pass to dlq-reprocessor)"
+  value       = module.events.dlq_urls
+}

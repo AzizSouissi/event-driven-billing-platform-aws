@@ -28,6 +28,12 @@ variable "db_secret_arn" {
   type        = string
 }
 
+variable "rds_proxy_endpoint" {
+  description = "RDS Proxy endpoint — Lambda connects here instead of directly to Aurora (empty = connect directly)"
+  type        = string
+  default     = ""
+}
+
 variable "user_pool_arn" {
   description = "Cognito User Pool ARN (for Lambda invoke permission). Empty string skips the permission resource (create it externally to break circular deps)."
   type        = string
@@ -44,4 +50,14 @@ variable "tags" {
   description = "Common tags applied to all resources"
   type        = map(string)
   default     = {}
+}
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# X-Ray Distributed Tracing
+# ──────────────────────────────────────────────────────────────────────────── #
+
+variable "enable_xray_tracing" {
+  description = "Enable X-Ray active tracing on Lambda function"
+  type        = bool
+  default     = true
 }

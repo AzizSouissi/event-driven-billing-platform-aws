@@ -96,6 +96,12 @@ resource "aws_lambda_function" "api" {
   filename         = data.archive_file.placeholder.output_path
   source_code_hash = data.archive_file.placeholder.output_base64sha256
 
+  # X-Ray distributed tracing — propagates trace context through
+  # API Gateway → Lambda → SNS → SQS → consumer Lambda
+  tracing_config {
+    mode = var.enable_xray_tracing ? "Active" : "PassThrough"
+  }
+
   # VPC configuration — Lambda runs inside private subnets
   vpc_config {
     subnet_ids         = var.private_subnet_ids
@@ -105,11 +111,12 @@ resource "aws_lambda_function" "api" {
   environment {
     variables = merge(
       {
-        ENVIRONMENT   = var.environment
-        PROJECT       = var.project
-        LOG_LEVEL     = var.environment == "prod" ? "WARN" : "DEBUG"
-        DB_SECRET_ARN = var.db_secret_arn
-        SNS_TOPIC_ARN = var.sns_topic_arn
+        ENVIRONMENT        = var.environment
+        PROJECT            = var.project
+        LOG_LEVEL          = var.environment == "prod" ? "WARN" : "DEBUG"
+        DB_SECRET_ARN      = var.db_secret_arn
+        SNS_TOPIC_ARN      = var.sns_topic_arn
+        RDS_PROXY_ENDPOINT = var.rds_proxy_endpoint
       },
       each.value.environment_variables
     )

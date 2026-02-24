@@ -55,6 +55,13 @@ const SECRET_ARN = process.env.DB_SECRET_ARN;
 const AWS_REGION = process.env.AWS_REGION || "us-east-1";
 
 /**
+ * RDS Proxy endpoint override.  When set, Lambda connects through the proxy
+ * instead of directly to Aurora.  The proxy handles connection multiplexing,
+ * reducing DB connection pressure from Lambda scaling.
+ */
+const RDS_PROXY_ENDPOINT = process.env.RDS_PROXY_ENDPOINT;
+
+/**
  * Fetch DB credentials from Secrets Manager (cached after first call).
  */
 async function getDbCredentials() {
@@ -88,18 +95,26 @@ async function getPool() {
 
   const creds = await getDbCredentials();
 
+  // When RDS Proxy is configured, connect to the proxy endpoint instead of
+  // directly to Aurora.  The proxy handles connection multiplexing, so we
+  // can safely use a slightly higher max per container.
+  const host = RDS_PROXY_ENDPOINT || creds.host;
+  const useProxy = Boolean(RDS_PROXY_ENDPOINT);
+
   _pool = new Pool({
-    host: creds.host,
+    host,
     port: creds.port || 5432,
     database: creds.dbname,
     user: creds.username,
     password: creds.password,
 
     // ── Connection limits ──────────────────────────────────────────────── //
-    max: 2, // Low — many Lambda containers share one RDS
+    // With RDS Proxy: can safely increase — proxy multiplexes connections.
+    // Without proxy: keep low — many Lambda containers share one RDS.
+    max: useProxy ? 5 : 2,
     min: 0, // Don't pre-create connections
-    idleTimeoutMillis: 60000, // Release idle connections after 60s
-    connectionTimeoutMillis: 5000, // Fail fast if RDS is unreachable
+    idleTimeoutMillis: useProxy ? 120000 : 60000, // Proxy keeps conns warm longer
+    connectionTimeoutMillis: 5000, // Fail fast if endpoint is unreachable
 
     // ── Query safety ───────────────────────────────────────────────────── //
     statement_timeout: 8000, // Kill queries after 8s (Lambda timeout is 10s)
@@ -117,9 +132,10 @@ async function getPool() {
   );
 
   logger.info("Connection pool created", {
-    host: creds.host,
+    host,
     database: creds.dbname,
-    maxConnections: 2,
+    maxConnections: useProxy ? 5 : 2,
+    viaProxy: useProxy,
   });
 
   return _pool;

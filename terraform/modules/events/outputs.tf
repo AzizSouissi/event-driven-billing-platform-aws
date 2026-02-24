@@ -31,6 +31,11 @@ output "dlq_arns" {
   value       = { for k, v in aws_sqs_queue.dlq : k => v.arn }
 }
 
+output "dlq_urls" {
+  description = "Map of consumer name → DLQ URL"
+  value       = { for k, v in aws_sqs_queue.dlq : k => v.id }
+}
+
 # ──────────────────────────────────────────────────────────────────────────── #
 # Consumer Lambdas
 # ──────────────────────────────────────────────────────────────────────────── #

@@ -36,6 +36,11 @@ output "api_5xx_alarm_arn" {
   value       = length(aws_cloudwatch_metric_alarm.api_5xx) > 0 ? aws_cloudwatch_metric_alarm.api_5xx[0].arn : ""
 }
 
+output "api_latency_anomaly_alarm_arn" {
+  description = "API latency anomaly detection alarm ARN"
+  value       = length(aws_cloudwatch_metric_alarm.api_latency_anomaly) > 0 ? aws_cloudwatch_metric_alarm.api_latency_anomaly[0].arn : ""
+}
+
 # ──────────────────────────────────────────────────────────────────────────── #
 # Dashboard
 # ──────────────────────────────────────────────────────────────────────────── #

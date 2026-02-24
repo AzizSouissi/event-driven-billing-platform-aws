@@ -282,6 +282,71 @@ resource "aws_cloudwatch_metric_alarm" "api_5xx" {
 }
 
 # ──────────────────────────────────────────────────────────────────────────── #
+# API Latency Anomaly Detection — ML-based adaptive thresholds
+# ──────────────────────────────────────────────────────────────────────────── #
+# Instead of a fixed latency threshold (e.g., >500ms), we use CloudWatch
+# Anomaly Detection which learns the normal traffic pattern over time.
+#
+# Why anomaly detection over fixed thresholds for billing systems:
+#   • Billing has predictable traffic patterns — higher at month-end during
+#     batch invoice generation, lower on weekends.
+#   • A fixed 500ms threshold would false-alarm during expected batch spikes.
+#   • Anomaly detection learns the expected P99 latency for each time period
+#     and alerts only when the ACTUAL deviation exceeds the expected pattern.
+#   • The band width (default: 2) controls sensitivity — higher values mean
+#     wider "normal" range and fewer false positives.
+#
+# Architecture:
+#   1. aws_cloudwatch_metric_alarm with ANOMALY_DETECTION_BAND expression
+#   2. Metric: AWS/ApiGateway Latency P99 by ApiId
+#   3. Alarm fires when P99 latency is ABOVE the upper anomaly band
+#   4. Band trains on ~2 weeks of data for accurate baseline
+
+resource "aws_cloudwatch_metric_alarm" "api_latency_anomaly" {
+  count = var.api_id != "" ? 1 : 0
+
+  alarm_name          = "${var.project}-${var.environment}-api-latency-anomaly"
+  alarm_description   = "API P99 latency exceeds learned normal pattern — possible degradation"
+  comparison_operator = "GreaterThanUpperThreshold"
+  evaluation_periods  = var.anomaly_detection_evaluation_periods
+  treat_missing_data  = "notBreaching"
+
+  # The threshold_metric_id points to the anomaly detection band expression.
+  # When P99 latency (m1) exceeds the upper bound of the band, alarm fires.
+  threshold_metric_id = "anomaly_band"
+
+  metric_query {
+    id          = "anomaly_band"
+    expression  = "ANOMALY_DETECTION_BAND(m1, ${var.anomaly_detection_band_width})"
+    label       = "Anomaly Detection Band"
+    return_data = true
+  }
+
+  metric_query {
+    id          = "m1"
+    return_data = true
+
+    metric {
+      metric_name = "Latency"
+      namespace   = "AWS/ApiGateway"
+      period      = var.anomaly_detection_period
+      stat        = "p99"
+      dimensions = {
+        ApiId = var.api_id
+      }
+    }
+  }
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
+  tags = merge(var.tags, {
+    Name     = "${var.project}-${var.environment}-api-latency-anomaly"
+    Severity = "warning"
+  })
+}
+
+# ──────────────────────────────────────────────────────────────────────────── #
 # CloudWatch Log Metric Filters — Extract metrics from structured logs
 # ──────────────────────────────────────────────────────────────────────────── #
 # These filters parse the JSON logs emitted by our structured logger and the
@@ -379,11 +444,33 @@ resource "aws_cloudwatch_dashboard" "main" {
             }
           }
         },
+        # Anomaly Detection widget — shows P99 latency with the learned
+        # anomaly band overlay so operators can visually spot deviations
         {
           type   = "metric"
           x      = 8
           y      = 1
           width  = 8
+          height = 6
+          properties = {
+            title   = "API Latency Anomaly Detection (P99)"
+            view    = "timeSeries"
+            stacked = false
+            region  = var.aws_region
+            period  = 300
+            metrics = var.api_id != "" ? [
+              ["AWS/ApiGateway", "Latency", "ApiId", var.api_id, { id = "m1", stat = "p99", label = "P99 Latency" }],
+            ] : []
+            yAxis = {
+              left = { label = "ms", showUnits = false }
+            }
+          }
+        },
+        {
+          type   = "metric"
+          x      = 16
+          y      = 1
+          width  = 4
           height = 6
           properties = {
             title   = "API Request Count"
@@ -399,20 +486,20 @@ resource "aws_cloudwatch_dashboard" "main" {
         },
         {
           type   = "metric"
-          x      = 16
+          x      = 20
           y      = 1
-          width  = 8
+          width  = 4
           height = 6
           properties = {
-            title   = "API Error Rates (4xx / 5xx)"
+            title   = "API Errors (4xx / 5xx)"
             view    = "timeSeries"
             stacked = false
             region  = var.aws_region
             period  = 300
             stat    = "Sum"
             metrics = var.api_id != "" ? [
-              ["AWS/ApiGateway", "4xx", "ApiId", var.api_id, { label = "4xx Client Errors", color = "#ff9900" }],
-              ["AWS/ApiGateway", "5xx", "ApiId", var.api_id, { label = "5xx Server Errors", color = "#d13212" }],
+              ["AWS/ApiGateway", "4xx", "ApiId", var.api_id, { label = "4xx", color = "#ff9900" }],
+              ["AWS/ApiGateway", "5xx", "ApiId", var.api_id, { label = "5xx", color = "#d13212" }],
             ] : []
           }
         },

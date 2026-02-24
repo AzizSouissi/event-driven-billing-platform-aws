@@ -224,6 +224,43 @@ resource "aws_iam_role_policy_attachment" "lambda_sns" {
 }
 
 # ──────────────────────────────────────────────────────────────────────────── #
+# X-Ray — Allow Lambda to send traces for distributed tracing
+# ──────────────────────────────────────────────────────────────────────────── #
+# X-Ray does not support resource-level permissions — Resource must be "*".
+# These permissions are needed when Lambda tracing_config.mode = "Active".
+
+data "aws_iam_policy_document" "lambda_xray" {
+  statement {
+    sid    = "AllowXRayTracing"
+    effect = "Allow"
+
+    actions = [
+      "xray:PutTraceSegments",
+      "xray:PutTelemetryRecords",
+      "xray:GetSamplingRules",
+      "xray:GetSamplingTargets",
+    ]
+
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "lambda_xray" {
+  name        = "${var.project}-${var.environment}-lambda-xray"
+  description = "Allow Lambda to send X-Ray traces"
+  policy      = data.aws_iam_policy_document.lambda_xray.json
+
+  tags = merge(var.tags, {
+    Name = "${var.project}-${var.environment}-lambda-xray"
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_xray" {
+  role       = aws_iam_role.lambda_execution.name
+  policy_arn = aws_iam_policy.lambda_xray.arn
+}
+
+# ──────────────────────────────────────────────────────────────────────────── #
 # SQS — Allow Lambda to consume messages and interact with DLQs
 # ──────────────────────────────────────────────────────────────────────────── #
 

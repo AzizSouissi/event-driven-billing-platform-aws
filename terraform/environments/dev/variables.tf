@@ -231,3 +231,13 @@ variable "waf_enable_logging" {
   type        = bool
   default     = true
 }
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# X-Ray Distributed Tracing
+# ──────────────────────────────────────────────────────────────────────────── #
+
+variable "enable_xray_tracing" {
+  description = "Enable X-Ray active tracing on all Lambda functions and SNS topics"
+  type        = bool
+  default     = true
+}

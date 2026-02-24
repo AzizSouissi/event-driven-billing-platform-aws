@@ -1,60 +1,72 @@
+###############################################################################
+# DLQ Reprocessor Module — Variables
+###############################################################################
+
 # ──────────────────────────────────────────────────────────────────────────── #
-# Required Variables
+# Required
 # ──────────────────────────────────────────────────────────────────────────── #
 
 variable "project" {
-  description = "Project name"
+  description = "Project name used for resource naming"
   type        = string
 }
 
 variable "environment" {
-  description = "Deployment environment"
+  description = "Deployment environment (dev, staging, prod)"
   type        = string
 }
 
 variable "tags" {
-  description = "Common tags"
+  description = "Common tags applied to all resources"
   type        = map(string)
   default     = {}
 }
 
 # ──────────────────────────────────────────────────────────────────────────── #
-# VPC References (from VPC module)
-# ──────────────────────────────────────────────────────────────────────────── #
-
-variable "private_subnet_ids" {
-  description = "Private subnet IDs for Lambda VPC placement"
-  type        = list(string)
-}
-
-variable "lambda_security_group_id" {
-  description = "Security group ID for Lambda functions"
-  type        = string
-}
-
-# ──────────────────────────────────────────────────────────────────────────── #
-# IAM References (from IAM module)
+# IAM
 # ──────────────────────────────────────────────────────────────────────────── #
 
 variable "lambda_execution_role_arn" {
-  description = "IAM role ARN for Lambda execution"
+  description = "IAM role ARN for the Lambda function"
+  type        = string
+}
+
+variable "lambda_execution_role_id" {
+  description = "IAM role ID (name) for attaching inline policies"
   type        = string
 }
 
 # ──────────────────────────────────────────────────────────────────────────── #
-# Database
+# SQS References (from events module)
 # ──────────────────────────────────────────────────────────────────────────── #
 
-variable "db_secret_arn" {
-  description = "ARN of the Secrets Manager secret containing DB credentials"
-  type        = string
-  default     = ""
+variable "queue_map" {
+  description = "Map of consumer name → { dlq_url, target_queue_url } for the reprocessor"
+  type        = map(object({
+    dlq_url          = string
+    target_queue_url = string
+  }))
 }
 
-variable "rds_proxy_endpoint" {
-  description = "RDS Proxy endpoint — Lambda connects here instead of directly to Aurora (empty = connect directly)"
-  type        = string
-  default     = ""
+variable "processing_queue_arns" {
+  description = "Map of consumer name → processing queue ARN (for IAM SendMessage permission)"
+  type        = map(string)
+}
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# Lambda Configuration
+# ──────────────────────────────────────────────────────────────────────────── #
+
+variable "timeout" {
+  description = "Lambda timeout in seconds (needs time to drain DLQ)"
+  type        = number
+  default     = 300  # 5 minutes — enough for large DLQ backlogs
+}
+
+variable "memory_size" {
+  description = "Lambda memory in MB"
+  type        = number
+  default     = 128  # Minimal — SQS I/O bound, not CPU
 }
 
 # ──────────────────────────────────────────────────────────────────────────── #
@@ -72,7 +84,7 @@ variable "log_retention_days" {
 # ──────────────────────────────────────────────────────────────────────────── #
 
 variable "enable_xray_tracing" {
-  description = "Enable X-Ray active tracing on Lambda functions and SNS topic"
+  description = "Enable X-Ray active tracing on Lambda function"
   type        = bool
   default     = true
 }
