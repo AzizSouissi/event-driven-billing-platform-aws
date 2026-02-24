@@ -22,3 +22,8 @@ callback_urls                 = ["http://localhost:3000/callback"]
 logout_urls                   = ["http://localhost:3000"]
 cors_allow_origins            = ["http://localhost:3000"]
 log_retention_days            = 30
+
+# API / Routes / Throttling
+api_stage_name               = "v1"
+default_throttle_burst_limit = 100
+default_throttle_rate_limit  = 50

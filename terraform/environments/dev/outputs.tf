@@ -82,3 +82,19 @@ output "api_authorizer_id" {
   description = "JWT authorizer ID for route attachment"
   value       = module.auth.authorizer_id
 }
+
+# API / Routes
+output "api_stage_invoke_url" {
+  description = "Versioned stage invoke URL (e.g., .../v1)"
+  value       = module.api.stage_invoke_url
+}
+
+output "lambda_function_names" {
+  description = "Map of API function names"
+  value       = module.api.lambda_function_names
+}
+
+output "api_access_log_group" {
+  description = "CloudWatch log group for API access logs"
+  value       = module.api.api_access_log_group
+}

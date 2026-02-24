@@ -56,6 +56,11 @@ output "api_endpoint" {
   value       = aws_apigatewayv2_api.main.api_endpoint
 }
 
+output "api_execution_arn" {
+  description = "HTTP API Gateway execution ARN (for Lambda permissions)"
+  value       = aws_apigatewayv2_api.main.execution_arn
+}
+
 output "authorizer_id" {
   description = "JWT authorizer ID (attach to routes)"
   value       = aws_apigatewayv2_authorizer.cognito_jwt.id

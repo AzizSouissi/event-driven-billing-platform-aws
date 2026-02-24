@@ -103,3 +103,25 @@ variable "log_retention_days" {
   type        = number
   default     = 30
 }
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# API / Routes / Throttling
+# ──────────────────────────────────────────────────────────────────────────── #
+
+variable "api_stage_name" {
+  description = "API Gateway stage name"
+  type        = string
+  default     = "v1"
+}
+
+variable "default_throttle_burst_limit" {
+  description = "Default burst limit for all API routes"
+  type        = number
+  default     = 100
+}
+
+variable "default_throttle_rate_limit" {
+  description = "Default steady-state rate limit for all API routes (req/s)"
+  type        = number
+  default     = 50
+}
