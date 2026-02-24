@@ -725,38 +725,38 @@ All alarms publish to a single SNS topic. Add PagerDuty, Slack, or OpsGenie subs
 
 The `billing-platform-dev-operations` dashboard has five rows:
 
-```text
-┌─────────────────────────────────────────────────────────────────────┐
-│ Row 1: API Performance                                              │
-│ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                 │
-│ │ Latency      │ │ Request      │ │ Error Rates  │                 │
-│ │ P50/P90/P99  │ │ Count        │ │ 4xx / 5xx    │                 │
-│ └──────────────┘ └──────────────┘ └──────────────┘                 │
-├─────────────────────────────────────────────────────────────────────┤
-│ Row 2: Lambda Performance                                           │
-│ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                 │
-│ │ Error Rate % │ │ Duration P90 │ │ Concurrent   │                 │
-│ │ (per func)   │ │ (per func)   │ │ Executions   │                 │
-│ └──────────────┘ └──────────────┘ └──────────────┘                 │
-├─────────────────────────────────────────────────────────────────────┤
-│ Row 3: Business KPIs                                                │
-│ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                 │
-│ │ Invoice Gen  │ │ Subscriptions│ │ Revenue per  │                 │
-│ │ Time         │ │ Created      │ │ Invoice      │                 │
-│ └──────────────┘ └──────────────┘ └──────────────┘                 │
-├─────────────────────────────────────────────────────────────────────┤
-│ Row 4: Event Processing & Queues                                    │
-│ ┌──────────────────────┐ ┌──────────────────────┐                   │
-│ │ SQS Messages         │ │ DLQ Message Count    │                   │
-│ │ In Flight            │ │ (should be 0)        │                   │
-│ └──────────────────────┘ └──────────────────────┘                   │
-├─────────────────────────────────────────────────────────────────────┤
-│ Row 5: Database (when RDS module is added)                          │
-│ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                 │
-│ │ RDS CPU %    │ │ DB           │ │ Free Storage │                 │
-│ │              │ │ Connections  │ │ Space        │                 │
-│ └──────────────┘ └──────────────┘ └──────────────┘                 │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+block-beta
+    columns 3
+    block:r1["Row 1: API Performance"]:3
+        columns 3
+        A1["Latency\nP50/P90/P99"]
+        A2["Request\nCount"]
+        A3["Error Rates\n4xx / 5xx"]
+    end
+    block:r2["Row 2: Lambda Performance"]:3
+        columns 3
+        B1["Error Rate %\n(per func)"]
+        B2["Duration P90\n(per func)"]
+        B3["Concurrent\nExecutions"]
+    end
+    block:r3["Row 3: Business KPIs"]:3
+        columns 3
+        C1["Invoice Gen\nTime"]
+        C2["Subscriptions\nCreated"]
+        C3["Revenue per\nInvoice"]
+    end
+    block:r4["Row 4: Event Processing & Queues"]:3
+        columns 2
+        D1["SQS Messages\nIn Flight"]
+        D2["DLQ Message Count\n(should be 0)"]
+    end
+    block:r5["Row 5: Database"]:3
+        columns 3
+        E1["RDS CPU %"]
+        E2["DB\nConnections"]
+        E3["Free Storage\nSpace"]
+    end
 ```
 
 #### Monitoring Best Practices for SaaS Systems
@@ -826,19 +826,19 @@ Multi-tenant SaaS requires per-tenant visibility. Our custom metrics include `Te
 
 #### Encryption & Security
 
-```text
-┌──────────────────────────────────────────────────────────────────────┐
-│                    Defense-in-Depth Layers                            │
-│                                                                      │
-│  1. VPC Isolation    — Private subnets only, no public access        │
-│  2. Security Group   — Port 5432 from Lambda SG only                 │
-│  3. TLS Enforcement  — rds.force_ssl = 1 (parameter group)           │
-│  4. KMS Encryption   — Storage + secrets encrypted with CMK          │
-│  5. Secrets Manager  — Auto-managed master password, rotatable       │
-│  6. IAM DB Auth      — Enabled for future token-based access         │
-│  7. RLS Policies     — Row-Level Security at the PostgreSQL level    │
-│  8. Statement Timeout— 30s DB-level, 8s app-level (prevents runaway) │
-└──────────────────────────────────────────────────────────────────────┘
+```mermaid
+block-beta
+    columns 1
+    block:layers["Defense-in-Depth Layers"]
+        L1["1. VPC Isolation — Private subnets only, no public access"]
+        L2["2. Security Group — Port 5432 from Lambda SG only"]
+        L3["3. TLS Enforcement — rds.force_ssl = 1"]
+        L4["4. KMS Encryption — Storage + secrets encrypted with CMK"]
+        L5["5. Secrets Manager — Auto-managed master password, rotatable"]
+        L6["6. IAM DB Auth — Enabled for future token-based access"]
+        L7["7. RLS Policies — Row-Level Security at PostgreSQL level"]
+        L8["8. Statement Timeout — 30s DB-level, 8s app-level"]
+    end
 ```
 
 #### Monitoring Built-In
@@ -1527,30 +1527,3 @@ cp -r terraform/environments/dev terraform/environments/prod
 | GitHub Actions CI/CD | Free tier: 2000 min/mo |
 
 **Prod recommendations**: Deploy NAT GW per AZ (~$64/mo total), add Aurora reader instance(s) for HA failover, set `deletion_protection = true` and `backup_retention_days = 35`. Enable Cognito Advanced Security in ENFORCED mode for adaptive authentication. Switch WAF managed rules to `"block"` after evaluation period. Consider disabling Interface VPC endpoints in dev to save ~$58/mo if NAT costs are lower.
-
----
-
-## Next Steps
-
-- [x] Add `modules/auth` — Cognito User Pool, App Client, JWT authorizer
-- [x] Add `modules/api` — REST routes, Lambda functions, throttling, validation
-- [x] Lambda function source code — handlers, shared DB layer, structured logging
-- [x] DB migration schema — tenants, subscriptions, invoices, billing_events with RLS
-- [x] IAM policies for Secrets Manager and SSM Parameter Store
-- [x] Add `modules/events` — SNS fan-out, SQS queues + DLQs, consumer Lambdas
-- [x] Event-driven idempotency + partial batch failure reporting
-- [x] DB migration for processed_events and audit_logs tables
-- [x] Add `modules/observability` — CloudWatch dashboard, alarms, metric filters
-- [x] Custom metrics via EMF — invoice_generation_time, subscription_count
-- [x] Structured JSON logging with CloudWatch Insights queries
-- [x] Add `modules/rds` — Aurora Serverless v2 in private subnets
-- [x] Add VPC endpoints for S3, DynamoDB, SQS, Secrets Manager, KMS, Logs, SNS, SSM
-- [x] IAM policies for RDS-managed secret + KMS decryption
-- [x] Add `modules/waf` — WAF v2 Web ACL with rate limiting, OWASP rules, SQLi, geo-blocking
-- [x] Add `modules/pre-token` — Cognito pre-token-generation Lambda for plan tier + feature flags
-- [x] Add `modules/rds-proxy` — RDS Proxy for Lambda connection pooling (transparent to app code)
-- [x] Add SNS filter policies — event-type-based routing via MessageAttributes
-- [x] Add `modules/dlq-reprocessor` — DLQ replay Lambda with manual invocation + audit trail
-- [x] CloudWatch Anomaly Detection for API latency
-- [x] X-Ray distributed tracing across SNS → SQS → Lambda
-- [x] CI/CD pipeline with `terraform plan` on PR, `apply` on merge
