@@ -61,6 +61,9 @@ module "auth" {
   cors_allow_origins = var.cors_allow_origins
   log_retention_days = var.log_retention_days
 
+  # Pre-token-generation Lambda — enriches JWT with plan tier, features
+  pre_token_generation_lambda_arn = module.pre_token.function_arn
+
   tags = local.common_tags
 }
 
@@ -319,6 +322,67 @@ module "vpc_endpoints" {
   tags = local.common_tags
 }
 
+# ---------- Pre-Token-Generation Lambda ------------------------------------ #
+module "pre_token" {
+  source = "../../modules/pre-token"
+
+  project     = var.project
+  environment = var.environment
+
+  # From IAM module
+  lambda_execution_role_arn = module.iam.lambda_execution_role_arn
+
+  # From VPC module (needs DB access for tenant lookup)
+  private_subnet_ids       = module.vpc.private_subnet_ids
+  lambda_security_group_id = module.vpc.lambda_security_group_id
+
+  # Database credentials
+  db_secret_arn = module.rds.master_user_secret_arn
+
+  # Logging
+  log_retention_days = var.log_retention_days
+
+  tags = local.common_tags
+}
+
+# Cognito → Lambda invoke permission (separate resource to break circular
+# dependency between auth and pre_token modules)
+resource "aws_lambda_permission" "cognito_pre_token" {
+  statement_id  = "AllowCognitoInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = module.pre_token.function_name
+  principal     = "cognito-idp.amazonaws.com"
+  source_arn    = module.auth.user_pool_arn
+}
+
+# ---------- WAF (API Gateway Protection) ---------------------------------- #
+module "waf" {
+  source = "../../modules/waf"
+
+  project     = var.project
+  environment = var.environment
+  aws_region  = var.aws_region
+
+  # API Gateway stage ARN for WAF association
+  # HTTP API v2 stage ARN format: arn:aws:apigateway:{region}::/apis/{api-id}/stages/{stage-name}
+  api_stage_arn = module.api.stage_arn
+
+  # WAF configuration
+  rate_limit_threshold    = var.waf_rate_limit_threshold
+  managed_rules_action    = var.waf_managed_rules_action
+  blocked_country_codes   = var.waf_blocked_country_codes
+
+  # Logging
+  enable_logging = var.waf_enable_logging
+  log_retention_days          = var.log_retention_days
+  redact_authorization_header = true
+
+  # Alarms — send to the observability alarm topic
+  alarm_sns_topic_arn = module.observability.alarm_topic_arn
+
+  tags = local.common_tags
+}
+
 # ---------- Observability (Dashboard, Alarms, Metrics) --------------------- #
 module "observability" {
   source = "../../modules/observability"
@@ -327,19 +391,23 @@ module "observability" {
   environment = var.environment
   aws_region  = var.aws_region
 
-  # All Lambda function names (API + event consumers)
+  # All Lambda function names (API + event consumers + pre-token)
   lambda_function_names = concat(
     values(module.api.lambda_function_names),
     values(module.events.consumer_function_names),
+    [module.pre_token.function_name],
   )
 
   # All Lambda log group names for metric filters
-  lambda_log_group_names = [
-    for fn_name in concat(
-      values(module.api.lambda_function_names),
-      values(module.events.consumer_function_names),
-    ) : "/aws/lambda/${fn_name}"
-  ]
+  lambda_log_group_names = concat(
+    [
+      for fn_name in concat(
+        values(module.api.lambda_function_names),
+        values(module.events.consumer_function_names),
+      ) : "/aws/lambda/${fn_name}"
+    ],
+    [module.pre_token.log_group_name],
+  )
 
   # API Gateway
   api_id = module.auth.api_id

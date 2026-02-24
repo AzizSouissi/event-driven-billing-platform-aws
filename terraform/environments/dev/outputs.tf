@@ -183,3 +183,25 @@ output "dynamodb_endpoint_id" {
   description = "DynamoDB Gateway VPC endpoint ID"
   value       = module.vpc_endpoints.dynamodb_endpoint_id
 }
+
+# WAF
+output "waf_web_acl_arn" {
+  description = "WAF Web ACL ARN"
+  value       = module.waf.web_acl_arn
+}
+
+output "waf_web_acl_name" {
+  description = "WAF Web ACL name"
+  value       = module.waf.web_acl_name
+}
+
+# Pre-Token-Generation Lambda
+output "pre_token_function_name" {
+  description = "Pre-token-generation Lambda function name"
+  value       = module.pre_token.function_name
+}
+
+output "pre_token_function_arn" {
+  description = "Pre-token-generation Lambda function ARN"
+  value       = module.pre_token.function_arn
+}

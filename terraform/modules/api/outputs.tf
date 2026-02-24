@@ -26,6 +26,11 @@ output "stage_id" {
   value       = aws_apigatewayv2_stage.versioned.id
 }
 
+output "stage_arn" {
+  description = "Versioned stage ARN (for WAF association)"
+  value       = aws_apigatewayv2_stage.versioned.arn
+}
+
 output "stage_invoke_url" {
   description = "Full invoke URL for the versioned stage"
   value       = aws_apigatewayv2_stage.versioned.invoke_url

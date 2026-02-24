@@ -203,3 +203,31 @@ variable "alarm_email" {
   type        = string
   default     = ""
 }
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# WAF
+# ──────────────────────────────────────────────────────────────────────────── #
+
+variable "waf_rate_limit_threshold" {
+  description = "WAF rate limit: max requests per 5-min window per IP (default: 2000 ≈ 6.7 req/s)"
+  type        = number
+  default     = 2000
+}
+
+variable "waf_managed_rules_action" {
+  description = "WAF managed rules action: 'block' (enforce) or 'count' (monitor/evaluate)"
+  type        = string
+  default     = "count"
+}
+
+variable "waf_blocked_country_codes" {
+  description = "ISO 3166-1 alpha-2 country codes to block (empty = no geo-blocking)"
+  type        = list(string)
+  default     = []
+}
+
+variable "waf_enable_logging" {
+  description = "Enable WAF request logging to CloudWatch Logs"
+  type        = bool
+  default     = true
+}
