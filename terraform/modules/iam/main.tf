@@ -150,6 +150,77 @@ resource "aws_iam_role_policy_attachment" "lambda_ssm" {
 }
 
 # ──────────────────────────────────────────────────────────────────────────── #
+# SNS — Allow Lambda to publish subscription events
+# ──────────────────────────────────────────────────────────────────────────── #
+
+data "aws_iam_policy_document" "lambda_sns" {
+  statement {
+    sid    = "AllowSNSPublish"
+    effect = "Allow"
+
+    actions = [
+      "sns:Publish",
+    ]
+
+    resources = [
+      "arn:aws:sns:${var.aws_region}:${var.aws_account_id}:${var.project}-${var.environment}-*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "lambda_sns" {
+  name        = "${var.project}-${var.environment}-lambda-sns"
+  description = "Allow Lambda to publish to SNS topics"
+  policy      = data.aws_iam_policy_document.lambda_sns.json
+
+  tags = merge(var.tags, {
+    Name = "${var.project}-${var.environment}-lambda-sns"
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_sns" {
+  role       = aws_iam_role.lambda_execution.name
+  policy_arn = aws_iam_policy.lambda_sns.arn
+}
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# SQS — Allow Lambda to consume messages and interact with DLQs
+# ──────────────────────────────────────────────────────────────────────────── #
+
+data "aws_iam_policy_document" "lambda_sqs" {
+  statement {
+    sid    = "AllowSQSConsume"
+    effect = "Allow"
+
+    actions = [
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:GetQueueAttributes",
+      "sqs:ChangeMessageVisibility",
+    ]
+
+    resources = [
+      "arn:aws:sqs:${var.aws_region}:${var.aws_account_id}:${var.project}-${var.environment}-*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "lambda_sqs" {
+  name        = "${var.project}-${var.environment}-lambda-sqs"
+  description = "Allow Lambda to consume from SQS queues"
+  policy      = data.aws_iam_policy_document.lambda_sqs.json
+
+  tags = merge(var.tags, {
+    Name = "${var.project}-${var.environment}-lambda-sqs"
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_sqs" {
+  role       = aws_iam_role.lambda_execution.name
+  policy_arn = aws_iam_policy.lambda_sqs.arn
+}
+
+# ──────────────────────────────────────────────────────────────────────────── #
 # API Gateway CloudWatch Logging Role
 # ──────────────────────────────────────────────────────────────────────────── #
 

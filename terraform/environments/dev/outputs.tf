@@ -98,3 +98,29 @@ output "api_access_log_group" {
   description = "CloudWatch log group for API access logs"
   value       = module.api.api_access_log_group
 }
+
+# Events / SNS + SQS
+output "sns_topic_arn" {
+  description = "SNS topic ARN for subscription events"
+  value       = module.events.sns_topic_arn
+}
+
+output "processing_queue_arns" {
+  description = "SQS processing queue ARNs"
+  value       = module.events.processing_queue_arns
+}
+
+output "dlq_arns" {
+  description = "Dead-letter queue ARNs"
+  value       = module.events.dlq_arns
+}
+
+output "consumer_function_names" {
+  description = "Map of event consumer Lambda function names"
+  value       = module.events.consumer_function_names
+}
+
+output "dlq_alarm_arns" {
+  description = "CloudWatch alarm ARNs for DLQ monitoring"
+  value       = module.events.dlq_alarm_arns
+}

@@ -27,11 +27,18 @@
 
 const { v4: uuidv4 } = require("uuid");
 const {
+  SNSClient,
+  PublishCommand,
+} = require("@aws-sdk/client-sns");
+const {
   withMiddleware,
   jsonResponse,
   AppError,
 } = require("../../shared/middleware");
 const { queryWithTenant, transactionWithTenant } = require("../../shared/db");
+
+const sns = new SNSClient({});
+const SNS_TOPIC_ARN = process.env.SNS_TOPIC_ARN;
 
 // ── Billing cycle helpers ──────────────────────────────────────────────── //
 
@@ -163,6 +170,49 @@ async function createSubscriptionHandler(
     amount,
     periodEnd: periodEnd.toISOString(),
   });
+
+  // ── Publish event to SNS for downstream consumers ────────────────────── //
+  if (SNS_TOPIC_ARN) {
+    const eventPayload = {
+      eventType: "subscription.created",
+      tenantId,
+      tenantName: tenant.email,  // Tenant name from JWT claims
+      tenantEmail: tenant.email,
+      userId: tenant.userId,
+      subscriptionId,
+      planId: plan_id,
+      billingCycle: billing_cycle,
+      amount,
+      currency: "usd",
+      currentPeriodStart: periodStart.toISOString(),
+      currentPeriodEnd: periodEnd.toISOString(),
+      metadata: metadata || {},
+      timestamp: new Date().toISOString(),
+    };
+
+    await sns.send(
+      new PublishCommand({
+        TopicArn: SNS_TOPIC_ARN,
+        Message: JSON.stringify(eventPayload),
+        MessageAttributes: {
+          eventType: {
+            DataType: "String",
+            StringValue: "subscription.created",
+          },
+          tenantId: {
+            DataType: "String",
+            StringValue: tenantId,
+          },
+        },
+      }),
+    );
+
+    logger.info("Event published to SNS", {
+      topicArn: SNS_TOPIC_ARN,
+      eventType: "subscription.created",
+      subscriptionId,
+    });
+  }
 
   return jsonResponse(201, {
     message: "Subscription created successfully",

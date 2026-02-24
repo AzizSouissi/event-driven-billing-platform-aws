@@ -84,6 +84,9 @@ module "api" {
   # Database
   db_secret_arn = var.db_secret_arn
 
+  # SNS topic for event-driven consumers
+  sns_topic_arn = module.events.sns_topic_arn
+
   # Throttling
   default_throttle_burst_limit = var.default_throttle_burst_limit
   default_throttle_rate_limit  = var.default_throttle_rate_limit
@@ -213,6 +216,29 @@ module "api" {
   # Logging
   lambda_log_retention_days = var.log_retention_days
   api_log_retention_days    = var.log_retention_days
+
+  tags = local.common_tags
+}
+
+# ---------- Events (SNS fan-out + SQS consumers) -------------------------- #
+module "events" {
+  source = "../../modules/events"
+
+  project     = var.project
+  environment = var.environment
+
+  # From VPC module
+  private_subnet_ids       = module.vpc.private_subnet_ids
+  lambda_security_group_id = module.vpc.lambda_security_group_id
+
+  # From IAM module
+  lambda_execution_role_arn = module.iam.lambda_execution_role_arn
+
+  # Database
+  db_secret_arn = var.db_secret_arn
+
+  # Logging
+  log_retention_days = var.log_retention_days
 
   tags = local.common_tags
 }

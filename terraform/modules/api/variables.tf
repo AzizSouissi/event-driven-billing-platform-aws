@@ -102,6 +102,12 @@ variable "db_secret_arn" {
   default     = ""
 }
 
+variable "sns_topic_arn" {
+  description = "ARN of the SNS topic for subscription events (passed to create-subscription Lambda)"
+  type        = string
+  default     = ""
+}
+
 # ──────────────────────────────────────────────────────────────────────────── #
 # Lambda Functions — Route → Function mapping
 # ──────────────────────────────────────────────────────────────────────────── #

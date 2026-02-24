@@ -7,4 +7,6 @@ module.exports = {
   ...require("./db"),
   ...require("./middleware"),
   ...require("./validation"),
+  ...require("./idempotency"),
+  ...require("./sqs-consumer"),
 };

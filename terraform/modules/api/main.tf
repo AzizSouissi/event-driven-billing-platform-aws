@@ -109,6 +109,7 @@ resource "aws_lambda_function" "api" {
         PROJECT       = var.project
         LOG_LEVEL     = var.environment == "prod" ? "WARN" : "DEBUG"
         DB_SECRET_ARN = var.db_secret_arn
+        SNS_TOPIC_ARN = var.sns_topic_arn
       },
       each.value.environment_variables
     )
