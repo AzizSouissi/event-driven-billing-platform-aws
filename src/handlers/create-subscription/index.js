@@ -33,7 +33,11 @@ const {
   AppError,
 } = require("../../shared/middleware");
 const { queryWithTenant, transactionWithTenant } = require("../../shared/db");
-const { incrementCounter, recordBusinessMetric, startTimer } = require("../../shared/metrics");
+const {
+  incrementCounter,
+  recordBusinessMetric,
+  startTimer,
+} = require("../../shared/metrics");
 
 const sns = new SNSClient({});
 const SNS_TOPIC_ARN = process.env.SNS_TOPIC_ARN;
@@ -170,8 +174,14 @@ async function createSubscriptionHandler(
   });
 
   // ── Emit custom metrics ──────────────────────────────────────────────── //
-  incrementCounter("subscription_count", 1, { PlanId: plan_id, BillingCycle: billing_cycle });
-  recordBusinessMetric("subscription_revenue", amount, "Count", { PlanId: plan_id, Currency: "usd" });
+  incrementCounter("subscription_count", 1, {
+    PlanId: plan_id,
+    BillingCycle: billing_cycle,
+  });
+  recordBusinessMetric("subscription_revenue", amount, "Count", {
+    PlanId: plan_id,
+    Currency: "usd",
+  });
 
   // ── Publish event to SNS for downstream consumers ────────────────────── //
   if (SNS_TOPIC_ARN) {

@@ -100,7 +100,12 @@ function putMetric(
  * @param {Object} dimensions  - Additional dimensions
  * @param {Object} properties  - Extra searchable properties
  */
-function recordLatency(operation, durationMs, dimensions = {}, properties = {}) {
+function recordLatency(
+  operation,
+  durationMs,
+  dimensions = {},
+  properties = {},
+) {
   putMetric(
     `${operation}_time`,
     durationMs,
@@ -119,7 +124,12 @@ function recordLatency(operation, durationMs, dimensions = {}, properties = {}) 
  * @param {Object} dimensions  - Additional dimensions
  * @param {Object} properties  - Extra searchable properties
  */
-function incrementCounter(metricName, count = 1, dimensions = {}, properties = {}) {
+function incrementCounter(
+  metricName,
+  count = 1,
+  dimensions = {},
+  properties = {},
+) {
   putMetric(metricName, count, "Count", dimensions, properties, 60);
 }
 

@@ -31,6 +31,12 @@ module "iam" {
   aws_region     = var.aws_region
   aws_account_id = data.aws_caller_identity.current.account_id
 
+  # Allow Lambda to read the RDS-managed master password secret
+  additional_secret_arns = [module.rds.master_user_secret_arn]
+
+  # Allow Lambda to decrypt the RDS secret (encrypted with Aurora CMK)
+  kms_key_arns = [module.rds.kms_key_arn]
+
   tags = local.common_tags
 }
 
@@ -82,7 +88,7 @@ module "api" {
   auto_deploy = true
 
   # Database
-  db_secret_arn = var.db_secret_arn
+  db_secret_arn = module.rds.master_user_secret_arn
 
   # SNS topic for event-driven consumers
   sns_topic_arn = module.events.sns_topic_arn
@@ -235,10 +241,80 @@ module "events" {
   lambda_execution_role_arn = module.iam.lambda_execution_role_arn
 
   # Database
-  db_secret_arn = var.db_secret_arn
+  db_secret_arn = module.rds.master_user_secret_arn
 
   # Logging
   log_retention_days = var.log_retention_days
+
+  tags = local.common_tags
+}
+
+# ---------- RDS (Aurora Serverless v2) ------------------------------------- #
+module "rds" {
+  source = "../../modules/rds"
+
+  project     = var.project
+  environment = var.environment
+
+  # From VPC module
+  db_subnet_group_name  = module.vpc.db_subnet_group_name
+  rds_security_group_id = module.vpc.rds_security_group_id
+  db_port               = var.db_port
+
+  # Engine
+  engine_version  = var.aurora_engine_version
+  database_name   = var.aurora_database_name
+  master_username = var.aurora_master_username
+
+  # Serverless v2 scaling
+  serverless_min_acu = var.aurora_min_acu
+  serverless_max_acu = var.aurora_max_acu
+
+  # Topology
+  reader_count = var.aurora_reader_count
+
+  # Backup & maintenance
+  backup_retention_days        = var.aurora_backup_retention_days
+  skip_final_snapshot          = var.aurora_skip_final_snapshot
+  deletion_protection          = var.aurora_deletion_protection
+  preferred_backup_window      = "03:00-04:00"
+  preferred_maintenance_window = "sun:05:00-sun:06:00"
+
+  # Monitoring
+  performance_insights_retention_days = 7
+  enhanced_monitoring_interval        = 60
+  log_retention_days                  = var.log_retention_days
+
+  tags = local.common_tags
+}
+
+# ---------- VPC Endpoints (reduce NAT costs) ------------------------------- #
+module "vpc_endpoints" {
+  source = "../../modules/vpc-endpoints"
+
+  project     = var.project
+  environment = var.environment
+  aws_region  = var.aws_region
+
+  # From VPC module
+  vpc_id                   = module.vpc.vpc_id
+  vpc_cidr                 = module.vpc.vpc_cidr
+  private_subnet_ids       = module.vpc.private_subnet_ids
+  private_route_table_ids  = module.vpc.private_route_table_ids
+  lambda_security_group_id = module.vpc.lambda_security_group_id
+
+  # Gateway endpoints (free — always on)
+  enable_s3_endpoint       = true
+  enable_dynamodb_endpoint = true
+
+  # Interface endpoints (individually toggleable)
+  enable_interface_endpoints     = var.enable_vpc_interface_endpoints
+  enable_sqs_endpoint            = var.enable_vpc_interface_endpoints
+  enable_secretsmanager_endpoint = var.enable_vpc_interface_endpoints
+  enable_kms_endpoint            = var.enable_vpc_interface_endpoints
+  enable_logs_endpoint           = var.enable_vpc_interface_endpoints
+  enable_sns_endpoint            = var.enable_vpc_interface_endpoints
+  enable_ssm_endpoint            = var.enable_vpc_interface_endpoints
 
   tags = local.common_tags
 }
@@ -278,8 +354,8 @@ module "observability" {
     "${var.project}-${var.environment}-${name}-dlq"
   ]
 
-  # RDS (empty until rds module is added)
-  rds_instance_id = var.rds_instance_id
+  # RDS (now provided by the rds module)
+  rds_instance_id = module.rds.writer_instance_id
 
   # Alarm notifications
   alarm_email = var.alarm_email

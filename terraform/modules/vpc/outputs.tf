@@ -38,6 +38,11 @@ output "nat_gateway_ip" {
   value       = aws_eip.nat.public_ip
 }
 
+output "private_route_table_ids" {
+  description = "IDs of private route tables (for Gateway VPC endpoints)"
+  value       = [aws_route_table.private.id]
+}
+
 output "availability_zones" {
   description = "AZs used by the subnets"
   value       = data.aws_availability_zones.available.names

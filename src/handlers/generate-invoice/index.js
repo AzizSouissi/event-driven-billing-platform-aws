@@ -41,7 +41,10 @@ async function processSubscriptionCreated(body, { logger }) {
     currentPeriodEnd,
   } = body;
 
-  const stopTimer = startTimer("invoice_generation", { TenantId: tenantId, PlanId: planId });
+  const stopTimer = startTimer("invoice_generation", {
+    TenantId: tenantId,
+    PlanId: planId,
+  });
 
   logger.info("Generating invoice for new subscription", {
     tenantId,
@@ -99,7 +102,10 @@ async function processSubscriptionCreated(body, { logger }) {
   const durationMs = stopTimer();
 
   // Emit business metrics via EMF
-  recordBusinessMetric("invoice_amount", amount, "Count", { TenantId: tenantId, PlanId: planId });
+  recordBusinessMetric("invoice_amount", amount, "Count", {
+    TenantId: tenantId,
+    PlanId: planId,
+  });
 
   logger.info("Invoice generated successfully", {
     invoiceId: invoice.id,

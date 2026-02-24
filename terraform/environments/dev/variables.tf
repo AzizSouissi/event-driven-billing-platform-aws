@@ -127,24 +127,76 @@ variable "default_throttle_rate_limit" {
 }
 
 # ──────────────────────────────────────────────────────────────────────────── #
-# Database
+# Database — Aurora Serverless v2
 # ──────────────────────────────────────────────────────────────────────────── #
 
-variable "db_secret_arn" {
-  description = "ARN of the Secrets Manager secret containing DB credentials"
+variable "aurora_engine_version" {
+  description = "Aurora PostgreSQL engine version"
   type        = string
-  default     = ""
+  default     = "15.4"
+}
+
+variable "aurora_database_name" {
+  description = "Default database name"
+  type        = string
+  default     = "billing"
+}
+
+variable "aurora_master_username" {
+  description = "Master username for Aurora"
+  type        = string
+  default     = "billing_admin"
+}
+
+variable "aurora_min_acu" {
+  description = "Minimum Aurora Capacity Units (0.5 = smallest)"
+  type        = number
+  default     = 0.5
+}
+
+variable "aurora_max_acu" {
+  description = "Maximum Aurora Capacity Units"
+  type        = number
+  default     = 4
+}
+
+variable "aurora_reader_count" {
+  description = "Number of reader instances (0 for dev, ≥1 for prod HA)"
+  type        = number
+  default     = 0
+}
+
+variable "aurora_backup_retention_days" {
+  description = "Automated backup retention period"
+  type        = number
+  default     = 7
+}
+
+variable "aurora_skip_final_snapshot" {
+  description = "Skip final snapshot on cluster deletion (true for dev)"
+  type        = bool
+  default     = true
+}
+
+variable "aurora_deletion_protection" {
+  description = "Prevent accidental cluster deletion (false for dev, true for prod)"
+  type        = bool
+  default     = false
+}
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# VPC Endpoints
+# ──────────────────────────────────────────────────────────────────────────── #
+
+variable "enable_vpc_interface_endpoints" {
+  description = "Enable Interface VPC endpoints for SQS, Secrets Manager, KMS, Logs, SNS, SSM (Gateway endpoints for S3/DynamoDB are always on)"
+  type        = bool
+  default     = true
 }
 
 # ──────────────────────────────────────────────────────────────────────────── #
 # Observability
 # ──────────────────────────────────────────────────────────────────────────── #
-
-variable "rds_instance_id" {
-  description = "RDS instance identifier for CloudWatch monitoring (empty until RDS module is added)"
-  type        = string
-  default     = ""
-}
 
 variable "alarm_email" {
   description = "Email address for CloudWatch alarm notifications (empty = no email)"

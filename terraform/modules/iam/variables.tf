@@ -23,3 +23,15 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "additional_secret_arns" {
+  description = "Additional Secrets Manager ARNs that Lambda can read (e.g., RDS-managed secrets)"
+  type        = list(string)
+  default     = []
+}
+
+variable "kms_key_arns" {
+  description = "KMS key ARNs that Lambda needs to decrypt (e.g., Aurora secret encryption key)"
+  type        = list(string)
+  default     = []
+}

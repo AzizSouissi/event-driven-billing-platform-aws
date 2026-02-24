@@ -93,9 +93,10 @@ data "aws_iam_policy_document" "lambda_secrets" {
       "secretsmanager:GetSecretValue",
     ]
 
-    resources = [
-      "arn:aws:secretsmanager:${var.aws_region}:${var.aws_account_id}:secret:${var.project}/${var.environment}/*",
-    ]
+    resources = concat(
+      ["arn:aws:secretsmanager:${var.aws_region}:${var.aws_account_id}:secret:${var.project}/${var.environment}/*"],
+      var.additional_secret_arns,
+    )
   }
 }
 
@@ -112,6 +113,45 @@ resource "aws_iam_policy" "lambda_secrets" {
 resource "aws_iam_role_policy_attachment" "lambda_secrets" {
   role       = aws_iam_role.lambda_execution.name
   policy_arn = aws_iam_policy.lambda_secrets.arn
+}
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# KMS — Allow Lambda to decrypt secrets (RDS master password uses CMK)
+# ──────────────────────────────────────────────────────────────────────────── #
+
+data "aws_iam_policy_document" "lambda_kms" {
+  count = length(var.kms_key_arns) > 0 ? 1 : 0
+
+  statement {
+    sid    = "AllowKMSDecrypt"
+    effect = "Allow"
+
+    actions = [
+      "kms:Decrypt",
+      "kms:DescribeKey",
+    ]
+
+    resources = var.kms_key_arns
+  }
+}
+
+resource "aws_iam_policy" "lambda_kms" {
+  count = length(var.kms_key_arns) > 0 ? 1 : 0
+
+  name        = "${var.project}-${var.environment}-lambda-kms"
+  description = "Allow Lambda to decrypt using KMS keys"
+  policy      = data.aws_iam_policy_document.lambda_kms[0].json
+
+  tags = merge(var.tags, {
+    Name = "${var.project}-${var.environment}-lambda-kms"
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_kms" {
+  count = length(var.kms_key_arns) > 0 ? 1 : 0
+
+  role       = aws_iam_role.lambda_execution.name
+  policy_arn = aws_iam_policy.lambda_kms[0].arn
 }
 
 # ──────────────────────────────────────────────────────────────────────────── #

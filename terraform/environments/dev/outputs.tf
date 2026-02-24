@@ -140,3 +140,46 @@ output "lambda_error_rate_alarm_arns" {
   description = "Map of Lambda error rate alarm ARNs"
   value       = module.observability.lambda_error_rate_alarm_arns
 }
+
+# RDS — Aurora Serverless v2
+output "aurora_cluster_endpoint" {
+  description = "Aurora writer endpoint (read/write)"
+  value       = module.rds.cluster_endpoint
+}
+
+output "aurora_reader_endpoint" {
+  description = "Aurora reader endpoint (read-only, load-balanced)"
+  value       = module.rds.reader_endpoint
+}
+
+output "aurora_cluster_id" {
+  description = "Aurora cluster identifier"
+  value       = module.rds.cluster_id
+}
+
+output "aurora_database_name" {
+  description = "Default database name"
+  value       = module.rds.database_name
+}
+
+output "aurora_master_user_secret_arn" {
+  description = "Secrets Manager ARN for the master password"
+  value       = module.rds.master_user_secret_arn
+  sensitive   = true
+}
+
+output "aurora_writer_instance_id" {
+  description = "Aurora writer instance ID (for CloudWatch monitoring)"
+  value       = module.rds.writer_instance_id
+}
+
+# VPC Endpoints
+output "s3_endpoint_id" {
+  description = "S3 Gateway VPC endpoint ID"
+  value       = module.vpc_endpoints.s3_endpoint_id
+}
+
+output "dynamodb_endpoint_id" {
+  description = "DynamoDB Gateway VPC endpoint ID"
+  value       = module.vpc_endpoints.dynamodb_endpoint_id
+}
