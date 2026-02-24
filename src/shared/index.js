@@ -9,4 +9,5 @@ module.exports = {
   ...require("./validation"),
   ...require("./idempotency"),
   ...require("./sqs-consumer"),
+  ...require("./metrics"),
 };

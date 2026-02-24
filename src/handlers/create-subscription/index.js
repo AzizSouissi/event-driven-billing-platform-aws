@@ -26,16 +26,14 @@
  */
 
 const { v4: uuidv4 } = require("uuid");
-const {
-  SNSClient,
-  PublishCommand,
-} = require("@aws-sdk/client-sns");
+const { SNSClient, PublishCommand } = require("@aws-sdk/client-sns");
 const {
   withMiddleware,
   jsonResponse,
   AppError,
 } = require("../../shared/middleware");
 const { queryWithTenant, transactionWithTenant } = require("../../shared/db");
+const { incrementCounter, recordBusinessMetric, startTimer } = require("../../shared/metrics");
 
 const sns = new SNSClient({});
 const SNS_TOPIC_ARN = process.env.SNS_TOPIC_ARN;
@@ -171,12 +169,16 @@ async function createSubscriptionHandler(
     periodEnd: periodEnd.toISOString(),
   });
 
+  // ── Emit custom metrics ──────────────────────────────────────────────── //
+  incrementCounter("subscription_count", 1, { PlanId: plan_id, BillingCycle: billing_cycle });
+  recordBusinessMetric("subscription_revenue", amount, "Count", { PlanId: plan_id, Currency: "usd" });
+
   // ── Publish event to SNS for downstream consumers ────────────────────── //
   if (SNS_TOPIC_ARN) {
     const eventPayload = {
       eventType: "subscription.created",
       tenantId,
-      tenantName: tenant.email,  // Tenant name from JWT claims
+      tenantName: tenant.email, // Tenant name from JWT claims
       tenantEmail: tenant.email,
       userId: tenant.userId,
       subscriptionId,

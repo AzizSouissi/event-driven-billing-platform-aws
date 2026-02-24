@@ -243,6 +243,50 @@ module "events" {
   tags = local.common_tags
 }
 
+# ---------- Observability (Dashboard, Alarms, Metrics) --------------------- #
+module "observability" {
+  source = "../../modules/observability"
+
+  project     = var.project
+  environment = var.environment
+  aws_region  = var.aws_region
+
+  # All Lambda function names (API + event consumers)
+  lambda_function_names = concat(
+    values(module.api.lambda_function_names),
+    values(module.events.consumer_function_names),
+  )
+
+  # All Lambda log group names for metric filters
+  lambda_log_group_names = [
+    for fn_name in concat(
+      values(module.api.lambda_function_names),
+      values(module.events.consumer_function_names),
+    ) : "/aws/lambda/${fn_name}"
+  ]
+
+  # API Gateway
+  api_id = module.auth.api_id
+
+  # SQS queues for dashboard
+  sqs_queue_names = [
+    for name in keys(module.events.processing_queue_arns) :
+    "${var.project}-${var.environment}-${name}"
+  ]
+  dlq_names = [
+    for name in keys(module.events.dlq_arns) :
+    "${var.project}-${var.environment}-${name}-dlq"
+  ]
+
+  # RDS (empty until rds module is added)
+  rds_instance_id = var.rds_instance_id
+
+  # Alarm notifications
+  alarm_email = var.alarm_email
+
+  tags = local.common_tags
+}
+
 # ---------- Locals --------------------------------------------------------- #
 locals {
   common_tags = {

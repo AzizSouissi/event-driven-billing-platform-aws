@@ -27,6 +27,7 @@
 const { v4: uuidv4 } = require("uuid");
 const { queryWithTenant } = require("../../shared/db");
 const { withSqsConsumer } = require("../../shared/sqs-consumer");
+const { startTimer, recordBusinessMetric } = require("../../shared/metrics");
 
 async function processSubscriptionCreated(body, { logger }) {
   const {
@@ -39,6 +40,8 @@ async function processSubscriptionCreated(body, { logger }) {
     currentPeriodStart,
     currentPeriodEnd,
   } = body;
+
+  const stopTimer = startTimer("invoice_generation", { TenantId: tenantId, PlanId: planId });
 
   logger.info("Generating invoice for new subscription", {
     tenantId,
@@ -93,11 +96,17 @@ async function processSubscriptionCreated(body, { logger }) {
 
   const invoice = result.rows[0];
 
+  const durationMs = stopTimer();
+
+  // Emit business metrics via EMF
+  recordBusinessMetric("invoice_amount", amount, "Count", { TenantId: tenantId, PlanId: planId });
+
   logger.info("Invoice generated successfully", {
     invoiceId: invoice.id,
     invoiceNumber: invoice.invoice_number,
     amount: invoice.amount,
     dueDate: dueDate.toISOString(),
+    generationTimeMs: Math.round(durationMs),
   });
 }
 

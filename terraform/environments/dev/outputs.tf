@@ -124,3 +124,19 @@ output "dlq_alarm_arns" {
   description = "CloudWatch alarm ARNs for DLQ monitoring"
   value       = module.events.dlq_alarm_arns
 }
+
+# Observability
+output "dashboard_name" {
+  description = "CloudWatch operations dashboard name"
+  value       = module.observability.dashboard_name
+}
+
+output "alarm_topic_arn" {
+  description = "SNS topic ARN for alarm notifications"
+  value       = module.observability.alarm_topic_arn
+}
+
+output "lambda_error_rate_alarm_arns" {
+  description = "Map of Lambda error rate alarm ARNs"
+  value       = module.observability.lambda_error_rate_alarm_arns
+}

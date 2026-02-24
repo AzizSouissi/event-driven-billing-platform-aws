@@ -135,3 +135,19 @@ variable "db_secret_arn" {
   type        = string
   default     = ""
 }
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# Observability
+# ──────────────────────────────────────────────────────────────────────────── #
+
+variable "rds_instance_id" {
+  description = "RDS instance identifier for CloudWatch monitoring (empty until RDS module is added)"
+  type        = string
+  default     = ""
+}
+
+variable "alarm_email" {
+  description = "Email address for CloudWatch alarm notifications (empty = no email)"
+  type        = string
+  default     = ""
+}
