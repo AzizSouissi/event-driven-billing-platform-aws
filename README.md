@@ -129,17 +129,9 @@ src/
 
 ### 2. Security Groups — Least Privilege
 
-```text
-┌──────────────┐     port 5432     ┌──────────────┐
-│  Lambda SG   │ ───────────────▷  │   RDS SG     │
-│              │                   │              │
-│ egress: all  │                   │ ingress:     │
-│ inbound: ─   │                   │  5432 from   │
-│              │                   │  Lambda SG   │
-└──────────────┘                   │              │
-                                   │ egress: VPC  │
-                                   │  CIDR only   │
-                                   └──────────────┘
+```mermaid
+flowchart LR
+    Lambda["Lambda SG<br>egress: all<br>inbound: none"] -- port 5432 --> RDS["RDS SG<br>ingress: 5432 from Lambda SG<br>egress: VPC CIDR only"]
 ```
 
 - **Lambda SG**: No inbound rules (API GW invokes Lambda via the AWS service, not through the VPC ENI). Outbound is open for NAT/AWS API calls.
@@ -165,30 +157,12 @@ Lambda logging is **scoped to a log-group prefix** (`/aws/lambda/billing-platfor
 
 #### Architecture Overview
 
-```text
-┌─────────┐   Authorization: Bearer <JWT>   ┌──────────────────┐
-│  Client  │ ─────────────────────────────▷  │  API Gateway     │
-│ (SPA /   │                                 │  HTTP API        │
-│  Mobile) │                                 │                  │
-└─────────┘                                  │  JWT Authorizer  │
-     │                                       │  ┌────────────┐  │
-     │  Auth Code + PKCE                     │  │ Validates:  │  │
-     ▼                                       │  │ • signature │  │
-┌──────────────┐                             │  │ • exp       │  │
-│  Cognito     │  issues JWT with claims:    │  │ • iss       │  │
-│  User Pool   │  • sub (user id)            │  │ • aud       │  │
-│              │  • custom:tenant_id          │  └────────────┘  │
-│  Groups:     │  • cognito:groups            └────────┬─────────┘
-│  • ADMIN     │                                       │
-│  • USER      │                                       ▼
-└──────────────┘                             ┌──────────────────┐
-                                             │  Lambda Function │
-                                             │                  │
-                                             │  Reads claims:   │
-                                             │  • tenant_id     │
-                                             │  • groups        │
-                                             │  Scopes DB query │
-                                             └──────────────────┘
+```mermaid
+flowchart TD
+    Client["Client (SPA / Mobile)"] -->|"Auth Code + PKCE"| Cognito["Cognito User Pool<br>Groups: ADMIN, USER"]
+    Cognito -.->|"Issues JWT: sub,<br>custom:tenant_id,<br>cognito:groups"| Client
+    Client -->|"Authorization: Bearer JWT"| APIGW["API Gateway HTTP API<br>JWT Authorizer validates:<br>signature, exp, iss, aud"]
+    APIGW --> Lambda["Lambda Function<br>Reads: tenant_id, groups<br>Scopes DB query"]
 ```
 
 #### How JWT Validation Works
@@ -266,18 +240,15 @@ def handler(event, context):
 
 #### Endpoint Map
 
-```text
-HTTP API (API Gateway v2)
-│
-├── JWT Authorizer (Cognito)          ← every route requires valid token
-│
-├── Stage: v1                         ← URI-path versioning
-│   ├── POST /v1/tenants              → create-tenant       (burst:  20, rate:  10/s)
-│   ├── POST /v1/subscriptions        → create-subscription (burst:  50, rate:  25/s)
-│   ├── GET  /v1/invoices             → list-invoices       (burst: 200, rate: 100/s)
-│   └── POST /v1/events               → ingest-event        (burst: 500, rate: 200/s)
-│
-└── Stage: $default                   ← auth module (Cognito hosted UI callbacks)
+```mermaid
+flowchart TD
+    API["HTTP API (API Gateway v2)"] --> JWT["JWT Authorizer (Cognito)<br>every route requires valid token"]
+    API --> V1["Stage: v1 — URI-path versioning"]
+    API --> Default["Stage: $default<br>Cognito hosted UI callbacks"]
+    V1 --> T["POST /v1/tenants → create-tenant<br>burst: 20, rate: 10/s"]
+    V1 --> S["POST /v1/subscriptions → create-subscription<br>burst: 50, rate: 25/s"]
+    V1 --> I["GET /v1/invoices → list-invoices<br>burst: 200, rate: 100/s"]
+    V1 --> E["POST /v1/events → ingest-event<br>burst: 500, rate: 200/s"]
 ```
 
 Each route maps to a dedicated Lambda function running inside the VPC with access to RDS via the Lambda security group.
@@ -286,34 +257,16 @@ Each route maps to a dedicated Lambda function running inside the VPC with acces
 
 Throttling operates at **two levels**, forming a cascading protection shield:
 
-```text
-                  Internet Traffic
-                       │
-                       ▼
-             ┌─────────────────┐
-             │  Stage Default   │  100 burst / 50 req/s
-             │  (safety net)    │  ← catches unthrottled routes
-             └────────┬────────┘
-                      │
-        ┌─────────────┼─────────────────┐
-        ▼             ▼                 ▼
-  ┌───────────┐ ┌───────────┐    ┌───────────┐
-  │ /tenants  │ │ /invoices │    │ /events   │
-  │ 20 burst  │ │ 200 burst │    │ 500 burst │
-  │ 10 req/s  │ │ 100 req/s │    │ 200 req/s │
-  └─────┬─────┘ └─────┬─────┘    └─────┬─────┘
-        │             │                │
-        ▼             ▼                ▼
-  ┌─────────────────────────────────────────┐
-  │  Lambda Concurrent Executions           │
-  │  (account limit: 1,000 default)         │
-  └─────────────────────────────────────────┘
-        │
-        ▼
-  ┌─────────────────────────────────────────┐
-  │  RDS Connection Pool                    │
-  │  (Aurora max: ~1,000 connections)       │
-  └─────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Internet["Internet Traffic"] --> Stage["Stage Default<br>100 burst / 50 req/s<br>(safety net)"]
+    Stage --> Tenants["/tenants<br>20 burst / 10 req/s"]
+    Stage --> Invoices["/invoices<br>200 burst / 100 req/s"]
+    Stage --> Events["/events<br>500 burst / 200 req/s"]
+    Tenants --> Lambda["Lambda Concurrent Executions<br>(account limit: 1,000 default)"]
+    Invoices --> Lambda
+    Events --> Lambda
+    Lambda --> RDS["RDS Connection Pool<br>(Aurora max: ~1,000 connections)"]
 ```
 
 **Why per-route limits differ:**
@@ -538,35 +491,18 @@ Synchronous request-response flows couple producers to consumers. When a subscri
 
 #### Event Flow Topology
 
-```text
-┌──────────────────────┐
-│  create-subscription │   POST /v1/subscriptions
-│  (API Lambda)        │
-└──────────┬───────────┘
-           │ SNS Publish
-           ▼
-┌──────────────────────┐
-│  SNS Topic           │   subscription-events
-│  (KMS encrypted)     │
-└──┬───────┬───────┬───┘
-   │       │       │       SNS → SQS fan-out (raw message delivery)
-   ▼       ▼       ▼
-┌──────┐ ┌──────┐ ┌──────┐
-│ SQS  │ │ SQS  │ │ SQS  │   Processing queues (SSE encrypted)
-│invoke│ │notify│ │audit │
-└──┬───┘ └──┬───┘ └──┬───┘
-   │        │        │        SQS → Lambda event source mapping
-   ▼        ▼        ▼
-┌──────┐ ┌──────┐ ┌──────┐
-│ λ    │ │ λ    │ │ λ    │   Consumer Lambdas
-│Invoice│ │Email │ │Audit │
-└──┬───┘ └──┬───┘ └──┬───┘
-   │        │        │        On exhausted retries → DLQ
-   ▼        ▼        ▼
-┌──────┐ ┌──────┐ ┌──────┐
-│ DLQ  │ │ DLQ  │ │ DLQ  │   Dead-letter queues (14-day retention)
-│      │ │      │ │      │   CloudWatch alarm when messages arrive
-└──────┘ └──────┘ └──────┘
+```mermaid
+flowchart TD
+    API["create-subscription<br>(API Lambda)<br>POST /v1/subscriptions"] -->|SNS Publish| SNS["SNS Topic<br>subscription-events<br>(KMS encrypted)"]
+    SNS -->|"fan-out (raw delivery)"| SQS1["SQS: generate-invoice"]
+    SNS --> SQS2["SQS: send-notification"]
+    SNS --> SQS3["SQS: audit-log"]
+    SQS1 --> L1["λ Invoice"]
+    SQS2 --> L2["λ Email"]
+    SQS3 --> L3["λ Audit"]
+    L1 -->|exhausted retries| DLQ1["DLQ (14-day retention)"]
+    L2 -->|exhausted retries| DLQ2["DLQ (14-day retention)"]
+    L3 -->|exhausted retries| DLQ3["DLQ (14-day retention)"]
 ```
 
 #### SNS Message Format
@@ -612,21 +548,17 @@ SQS guarantees **at-least-once delivery**, meaning a message may be delivered mo
 
 **Implementation** (PostgreSQL-based):
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                    SQS Consumer Middleware                       │
-│                                                                 │
-│  1. Parse SQS record → extract messageId                        │
-│  2. Build idempotency key: "{consumer}:{messageId}"             │
-│  3. INSERT INTO processed_events (idempotency_key, consumer)    │
-│     → If UNIQUE violation → skip (already processed)            │
-│  4. Execute business logic (generate invoice / send email / …)  │
-│  5. UPDATE processed_events SET status = 'completed'            │
-│  6. On failure → DELETE lock row → message returns to queue     │
-│                                                                 │
-│  Returns: { batchItemFailures: [...] }                          │
-│           (partial batch failure reporting)                      │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A["1. Parse SQS record → extract messageId"] --> B["2. Build idempotency key: consumer:messageId"]
+    B --> C{"3. INSERT INTO processed_events"}
+    C -->|UNIQUE violation| Skip["Skip (already processed)"]
+    C -->|Success| D["4. Execute business logic"]
+    D -->|Success| E["5. UPDATE status = completed"]
+    D -->|Failure| F["6. DELETE lock row"]
+    E --> Return["Return batchItemFailures"]
+    Skip --> Return
+    F --> Return
 ```
 
 The `processed_events` table uses a **UNIQUE constraint** on `idempotency_key`. The INSERT acts as an atomic lock — concurrent duplicate deliveries will hit the constraint and be safely skipped.
@@ -643,35 +575,17 @@ The `sqs-consumer.js` middleware returns `{ batchItemFailures: [{ itemIdentifier
 
 #### Failure Handling Flow
 
-```text
-Message arrives in SQS
-        │
-        ▼
-┌─ Idempotency check ─┐
-│  Already processed?  │──── YES ──▶ Skip (acknowledge)
-└──────────┬───────────┘
-           │ NO
-           ▼
-   Execute business logic
-        │         │
-     SUCCESS    FAILURE
-        │         │
-        ▼         ▼
-  Mark complete   Release lock
-  in DB           (DELETE row)
-                     │
-                     ▼
-            Message returns to queue
-            (visibility timeout)
-                     │
-                     ▼
-            Retry up to maxReceiveCount
-                     │
-                     ▼
-            Exhausted → DLQ
-                     │
-                     ▼
-            CloudWatch Alarm fires
+```mermaid
+flowchart TD
+    A["Message arrives in SQS"] --> B{"Idempotency check:<br>Already processed?"}
+    B -->|YES| C["Skip (acknowledge)"]
+    B -->|NO| D["Execute business logic"]
+    D -->|SUCCESS| E["Mark complete in DB"]
+    D -->|FAILURE| F["Release lock (DELETE row)"]
+    F --> G["Message returns to queue<br>(visibility timeout)"]
+    G --> H["Retry up to maxReceiveCount"]
+    H --> I["Exhausted → DLQ"]
+    I --> J["CloudWatch Alarm fires"]
 ```
 
 ### 11. Observability — CloudWatch Metrics, Alarms & Dashboard
@@ -953,19 +867,14 @@ One ACU = ~2 GB RAM + proportional CPU. At 0.5 ACU, the instance has ~1 GB RAM �
 
 All AWS API traffic from Lambda in a private subnet routes through the NAT Gateway. NAT charges $0.045/GB for data processing — this adds up for high-throughput services:
 
-```text
-Without VPC Endpoints:
-┌─────────┐     AWS APIs     ┌───────────┐     Internet     ┌─────────────┐
-│ Lambda  │ ──────────────▷  │ NAT GW    │ ──────────────▷  │ SQS/S3/CW   │
-│ (VPC)   │    $0.045/GB     │ ($32/mo)  │    $0.045/GB     │ Endpoints   │
-└─────────┘                  └───────────┘                  └─────────────┘
-
-With VPC Endpoints:
-┌─────────┐     Private      ┌─────────────┐
-│ Lambda  │ ──────────────▷  │ VPC Endpoint │  (stays on AWS backbone)
-│ (VPC)   │    Free (GW)     │ S3 / DynDB   │
-└─────────┘    or $0.01/GB   └─────────────┘
-               (Interface)
+```mermaid
+flowchart LR
+    subgraph without ["Without VPC Endpoints"]
+        L1["Lambda (VPC)"] -->|"$0.045/GB"| NAT["NAT GW ($32/mo)"] -->|"$0.045/GB"| AWS["SQS/S3/CW"]
+    end
+    subgraph with ["With VPC Endpoints"]
+        L2["Lambda (VPC)"] -->|"Free (GW) or $0.01/GB"| VPCE["VPC Endpoint<br>S3 / DynDB<br>(stays on AWS backbone)"]
+    end
 ```
 
 #### Endpoints Configured
@@ -1070,27 +979,17 @@ The `modules/pre-token` module deploys a Cognito pre-token-generation Lambda tri
 
 #### How It Works
 
-```text
-User Login / Token Refresh
-        │
-        ▼
-  Cognito User Pool
-        │
-        ▼  (Pre-Token-Generation Trigger)
-  Lambda Function
-        │
-        ├── Extract custom:tenant_id from user attributes
-        ├── Query Aurora: tenant + active subscription (LEFT JOIN)
-        ├── Resolve effective plan (subscription > tenant > "free")
-        ├── Map plan → feature flags (PLAN_FEATURES lookup)
-        └── Return claimsOverrideDetails
-        │
-        ▼
-  JWT issued with enriched claims
-        │
-        ▼
-  API Gateway / Lambda handlers read claims from JWT
-  (no per-request DB lookup needed for plan/features)
+```mermaid
+flowchart TD
+    Login["User Login / Token Refresh"] --> Cognito["Cognito User Pool"]
+    Cognito -->|"Pre-Token-Generation Trigger"| Lambda["Lambda Function"]
+    Lambda --> S1["Extract custom:tenant_id"]
+    S1 --> S2["Query Aurora: tenant + subscription"]
+    S2 --> S3["Resolve effective plan"]
+    S3 --> S4["Map plan → feature flags"]
+    S4 --> S5["Return claimsOverrideDetails"]
+    S5 --> JWT["JWT issued with enriched claims"]
+    JWT --> APIGW["API Gateway / Lambda handlers<br>read claims from JWT<br>(no per-request DB lookup)"]
 ```
 
 #### Plan Feature Matrix
@@ -1128,11 +1027,12 @@ Lambda scales horizontally — each concurrent container opens its own database 
 
 RDS Proxy sits between Lambda and Aurora, multiplexing hundreds of Lambda connections into a smaller pool of persistent database connections:
 
-```text
-Lambda Container 1 ──┐
-Lambda Container 2 ──┼── RDS Proxy ──── Aurora Cluster
-Lambda Container N ──┘   (connection   (max_connections)
-                         multiplexing)
+```mermaid
+flowchart LR
+    L1["Lambda Container 1"] --> Proxy["RDS Proxy<br>(connection multiplexing)"]
+    L2["Lambda Container 2"] --> Proxy
+    LN["Lambda Container N"] --> Proxy
+    Proxy --> Aurora["Aurora Cluster<br>(max_connections)"]
 ```
 
 #### Architecture
@@ -1215,11 +1115,11 @@ await sns.publish({
 
 #### Routing Flow
 
-```text
-SNS Topic
-    ├── [eventType = "subscription.created"] → SQS: generate-invoice ✓
-    ├── [eventType prefix "subscription."]    → SQS: send-notification ✓
-    └── [no filter]                           → SQS: audit-log ✓
+```mermaid
+flowchart TD
+    SNS["SNS Topic"] -->|"eventType = subscription.created"| Invoice["SQS: generate-invoice ✓"]
+    SNS -->|"eventType prefix subscription."| Notify["SQS: send-notification ✓"]
+    SNS -->|no filter| Audit["SQS: audit-log ✓"]
 ```
 
 With `raw_message_delivery = true`, SNS evaluates filter policies against **MessageAttributes** (not the message body). This is cost-free — SNS simply doesn't deliver non-matching messages to filtered subscriptions.
@@ -1247,8 +1147,9 @@ When a consumer Lambda exhausts all retries (e.g., 5 attempts for generate-invoi
 
 A dedicated Lambda function reads messages from any DLQ and sends them back to the corresponding processing queue:
 
-```text
-DLQ (failed messages) ──► DLQ Reprocessor Lambda ──► Processing Queue ──► Consumer Lambda
+```mermaid
+flowchart LR
+    DLQ["DLQ (failed messages)"] --> Reprocessor["DLQ Reprocessor Lambda"] --> Queue["Processing Queue"] --> Consumer["Consumer Lambda"]
 ```
 
 #### Invocation
@@ -1356,16 +1257,16 @@ In an event-driven architecture with multiple asynchronous hops (API → Lambda 
 
 X-Ray propagates a **trace ID** across all services in the request path. A single trace shows the full journey of a billing event from API Gateway to the final consumer Lambda:
 
-```text
-API Gateway
-  └─► Lambda (create-subscription)        [Segment: Lambda invocation]
-        └─► SNS Publish                    [Subsegment: AWS SDK call]
-              ├─► SQS (generate-invoice)   [Segment: message delivery]
-              │     └─► Lambda (gen-inv)   [Segment: consumer invocation]
-              ├─► SQS (send-notification)
-              │     └─► Lambda (send-notif)
-              └─► SQS (audit-log)
-                    └─► Lambda (audit-log)
+```mermaid
+flowchart TD
+    APIGW["API Gateway"] --> CreateSub["Lambda: create-subscription<br>Segment: invocation"]
+    CreateSub -->|"AWS SDK call"| SNSPub["SNS Publish<br>Subsegment: SDK"]
+    SNSPub --> SQS1["SQS: generate-invoice<br>Segment: delivery"]
+    SNSPub --> SQS2["SQS: send-notification"]
+    SNSPub --> SQS3["SQS: audit-log"]
+    SQS1 --> L1["Lambda: gen-inv<br>Segment: consumer"]
+    SQS2 --> L2["Lambda: send-notif"]
+    SQS3 --> L3["Lambda: audit-log"]
 ```
 
 #### What's Enabled
@@ -1432,30 +1333,11 @@ Running `terraform plan` and `terraform apply` from developer laptops creates ri
 
 Two workflows enforce a safe, auditable infrastructure change process:
 
-```text
-Developer pushes branch
-        │
-        ▼
-  Open Pull Request
-        │
-        ▼
-┌─────────────────────────────────────────────────┐
-│  terraform-plan.yml                              │
-│  ├── terraform fmt -check (style enforcement)    │
-│  ├── terraform validate (syntax check)           │
-│  ├── terraform plan -detailed-exitcode           │
-│  └── Post plan output as PR comment              │
-│       (reviewers see exact changes)              │
-└─────────────────────────────────────────────────┘
-        │
-        ▼  (approved + merged to main)
-┌─────────────────────────────────────────────────┐
-│  terraform-apply.yml                             │
-│  ├── Detect which environments changed           │
-│  ├── terraform plan (re-plan for safety)         │
-│  ├── terraform apply -auto-approve               │
-│  └── Capture outputs to GitHub Step Summary      │
-└─────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Push["Developer pushes branch"] --> PR["Open Pull Request"]
+    PR --> Plan["terraform-plan.yml<br><br>• terraform fmt -check<br>• terraform validate<br>• terraform plan -detailed-exitcode<br>• Post plan as PR comment"]
+    Plan -->|"approved + merged to main"| Apply["terraform-apply.yml<br><br>• Detect changed environments<br>• terraform plan (re-plan)<br>• terraform apply -auto-approve<br>• Capture outputs to Step Summary"]
 ```
 
 #### OIDC Authentication (No Static Keys)
@@ -1542,8 +1424,9 @@ To add staging or production:
 
 **Promotion chain** (uncomment in `terraform-apply.yml`):
 
-```text
-dev (auto) → staging (after dev succeeds) → prod (manual approval)
+```mermaid
+flowchart LR
+    Dev["dev (auto)"] --> Staging["staging (after dev succeeds)"] --> Prod["prod (manual approval)"]
 ```
 
 #### OIDC Setup Steps
