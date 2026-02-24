@@ -7,6 +7,14 @@ Production-ready Terraform foundation for a serverless SaaS billing backend on A
 ## Repository Structure
 
 ```text
+.github/
+├── actions/
+│   └── setup-terraform/    # Reusable composite action: OIDC + Terraform + init
+│       └── action.yml
+└── workflows/
+    ├── terraform-plan.yml  # CI: fmt → validate → plan → PR comment
+    └── terraform-apply.yml # CD: plan → apply on merge to main
+
 terraform/
 ├── bootstrap/              # One-time setup: S3 state bucket + DynamoDB lock table
 │   └── main.tf
@@ -47,7 +55,15 @@ terraform/
 │   │   ├── main.tf
 │   │   ├── variables.tf
 │   │   └── outputs.tf
-│   └── pre-token/          # Cognito pre-token-generation Lambda (plan tier, features)
+│   ├── pre-token/          # Cognito pre-token-generation Lambda (plan tier, features)
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   ├── rds-proxy/          # RDS Proxy — Lambda connection pooling for Aurora
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   └── dlq-reprocessor/    # DLQ replay Lambda — reprocess failed messages
 │       ├── main.tf
 │       ├── variables.tf
 │       └── outputs.tf
@@ -84,7 +100,9 @@ src/
 │   │   └── index.js
 │   ├── audit-log/          # SQS consumer — append-only audit trail
 │   │   └── index.js
-│   └── pre-token-generation/ # Cognito trigger — enrich JWT with plan tier + features
+│   ├── pre-token-generation/ # Cognito trigger — enrich JWT with plan tier + features
+│   │   └── index.js
+│   └── dlq-reprocessor/    # Operational — replay failed DLQ messages to processing queues
 │       └── index.js
 ├── migrations/             # Database schema migrations
 │   ├── 001_initial_schema.sql
@@ -1000,14 +1018,14 @@ The `modules/waf` module deploys an AWS WAF v2 Web ACL attached to the HTTP API 
 
 WAF rules are evaluated by priority (lowest number first). This ordering ensures cheapest/broadest filters run before expensive rule group evaluations:
 
-| Priority | Rule | Type | Description |
-|----------|------|------|-------------|
-| 1 | IP Reputation List | AWS Managed | Blocks IPs known for bot/fraud activity (AWS Threat Intel) |
-| 2 | Rate Limit (per-IP) | Rate-based | Blocks IPs exceeding 2000 req/5min (~6.7 req/s) |
-| 3 | Common Rule Set | AWS Managed | OWASP Top 10: XSS, path traversal, protocol violations |
-| 4 | Known Bad Inputs | AWS Managed | Log4Shell (CVE-2021-44228), SSRF patterns |
-| 5 | SQL Injection | AWS Managed | SQLi in headers, query strings, URI paths, body |
-| 6 | Geo Restrictions | Custom | Optional country-level blocking (disabled by default) |
+| Priority | Rule                | Type        | Description                                                |
+| -------- | ------------------- | ----------- | ---------------------------------------------------------- |
+| 1        | IP Reputation List  | AWS Managed | Blocks IPs known for bot/fraud activity (AWS Threat Intel) |
+| 2        | Rate Limit (per-IP) | Rate-based  | Blocks IPs exceeding 2000 req/5min (~6.7 req/s)            |
+| 3        | Common Rule Set     | AWS Managed | OWASP Top 10: XSS, path traversal, protocol violations     |
+| 4        | Known Bad Inputs    | AWS Managed | Log4Shell (CVE-2021-44228), SSRF patterns                  |
+| 5        | SQL Injection       | AWS Managed | SQLi in headers, query strings, URI paths, body            |
+| 6        | Geo Restrictions    | Custom      | Optional country-level blocking (disabled by default)      |
 
 #### Count vs Block Mode
 
@@ -1028,12 +1046,12 @@ A CloudWatch alarm fires when blocked requests exceed 100 per 5-minute period, i
 
 #### Key Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `waf_rate_limit_threshold` | 2000 | Max requests per 5-min per IP |
-| `waf_managed_rules_action` | `"count"` (dev) | `"count"` for evaluation, `"block"` for enforcement |
-| `waf_blocked_country_codes` | `[]` | ISO country codes to block |
-| `waf_enable_logging` | `true` | Enable WAF → CloudWatch logging |
+| Variable                    | Default         | Description                                         |
+| --------------------------- | --------------- | --------------------------------------------------- |
+| `waf_rate_limit_threshold`  | 2000            | Max requests per 5-min per IP                       |
+| `waf_managed_rules_action`  | `"count"` (dev) | `"count"` for evaluation, `"block"` for enforcement |
+| `waf_blocked_country_codes` | `[]`            | ISO country codes to block                          |
+| `waf_enable_logging`        | `true`          | Enable WAF → CloudWatch logging                     |
 
 ---
 
@@ -1043,12 +1061,12 @@ The `modules/pre-token` module deploys a Cognito pre-token-generation Lambda tri
 
 #### Claims Injected
 
-| Claim | Example Value | Purpose |
-|-------|--------------|---------|
-| `plan_tier` | `"professional"` | Feature gating, rate limit tiers |
-| `tenant_status` | `"active"` | Block suspended tenants at API level |
-| `features` | `{"maxUsers":50,...}` | Frontend feature flags (JSON string) |
-| `billing_cycle` | `"monthly"` | Display/logic in frontend |
+| Claim           | Example Value         | Purpose                              |
+| --------------- | --------------------- | ------------------------------------ |
+| `plan_tier`     | `"professional"`      | Feature gating, rate limit tiers     |
+| `tenant_status` | `"active"`            | Block suspended tenants at API level |
+| `features`      | `{"maxUsers":50,...}` | Frontend feature flags (JSON string) |
+| `billing_cycle` | `"monthly"`           | Display/logic in frontend            |
 
 #### How It Works
 
@@ -1077,16 +1095,16 @@ User Login / Token Refresh
 
 #### Plan Feature Matrix
 
-| Feature | Free | Starter | Professional | Enterprise |
-|---------|------|---------|--------------|------------|
-| Max Users | 3 | 10 | 50 | Unlimited |
-| Events/Month | 1,000 | 10,000 | 100,000 | Unlimited |
-| Invoice Export | — | ✓ | ✓ | ✓ |
-| API Access | — | ✓ | ✓ | ✓ |
-| Custom Branding | — | — | ✓ | ✓ |
-| Priority Support | — | — | ✓ | ✓ |
-| Audit Log | — | — | ✓ | ✓ |
-| Webhooks | — | — | ✓ | ✓ |
+| Feature          | Free  | Starter | Professional | Enterprise |
+| ---------------- | ----- | ------- | ------------ | ---------- |
+| Max Users        | 3     | 10      | 50           | Unlimited  |
+| Events/Month     | 1,000 | 10,000  | 100,000      | Unlimited  |
+| Invoice Export   | —     | ✓       | ✓            | ✓          |
+| API Access       | —     | ✓       | ✓            | ✓          |
+| Custom Branding  | —     | —       | ✓            | ✓          |
+| Priority Support | —     | —       | ✓            | ✓          |
+| Audit Log        | —     | —       | ✓            | ✓          |
+| Webhooks         | —     | —       | ✓            | ✓          |
 
 #### Graceful Fallback
 
@@ -1095,6 +1113,462 @@ The handler **never blocks authentication**. If the database is unavailable or t
 #### Per-Tenant Feature Overrides
 
 Tenant-specific overrides can be stored in `tenants.settings.featureOverrides`. These are merged on top of plan-level features, enabling sales-driven exceptions (e.g., giving a "starter" tenant the `invoiceExport` feature during a trial).
+
+---
+
+### 16. RDS Proxy — Lambda Connection Pooling
+
+**Module**: `terraform/modules/rds-proxy/`
+
+#### The Problem
+
+Lambda scales horizontally — each concurrent container opens its own database connections. With `max = 2` per container and 200 containers under load, that's 400 simultaneous connections to Aurora. Aurora Serverless v2 at 0.5 ACU supports ~45 connections, and even at 4 ACU only ~170. Connection storms during cold-start bursts can exhaust the connection pool and cascade failures.
+
+#### Solution: RDS Proxy
+
+RDS Proxy sits between Lambda and Aurora, multiplexing hundreds of Lambda connections into a smaller pool of persistent database connections:
+
+```text
+Lambda Container 1 ──┐
+Lambda Container 2 ──┼── RDS Proxy ──── Aurora Cluster
+Lambda Container N ──┘   (connection   (max_connections)
+                         multiplexing)
+```
+
+#### Architecture
+
+| Component                           | Purpose                                           |
+| ----------------------------------- | ------------------------------------------------- |
+| `aws_db_proxy`                      | Proxy instance in private subnets, TLS enforced   |
+| `aws_db_proxy_default_target_group` | Connection pool config (max %, borrow timeout)    |
+| `aws_db_proxy_target`               | Points proxy at the Aurora cluster                |
+| `aws_iam_role`                      | Proxy reads credentials from Secrets Manager      |
+| `aws_security_group`                | Ingress from Lambda SG → Proxy → Egress to RDS SG |
+
+#### Connection Pool Configuration
+
+| Setting                        | Value                   | Rationale                                                  |
+| ------------------------------ | ----------------------- | ---------------------------------------------------------- |
+| `max_connections_percent`      | 100                     | Single proxy = use all Aurora connections                  |
+| `max_idle_connections_percent` | 50                      | Keep warm connections ready for Lambda bursts              |
+| `connection_borrow_timeout`    | 120s                    | Wait for a connection before failing                       |
+| `idle_client_timeout`          | 1800s                   | Match Lambda freeze/thaw lifecycle                         |
+| `session_pinning_filters`      | `EXCLUDE_VARIABLE_SETS` | Reduce pinning from SET statements for better multiplexing |
+
+#### Code Changes (db.js)
+
+The `RDS_PROXY_ENDPOINT` environment variable overrides the `host` from Secrets Manager:
+
+```javascript
+const host = RDS_PROXY_ENDPOINT || creds.host;
+const useProxy = Boolean(RDS_PROXY_ENDPOINT);
+
+_pool = new Pool({
+  host,
+  max: useProxy ? 5 : 2, // Higher with proxy — multiplexing handles the rest
+  idleTimeoutMillis: useProxy ? 120000 : 60000,
+  // ... rest unchanged
+});
+```
+
+No application code changes required — the proxy is transparent to PostgreSQL clients.
+
+#### Cost
+
+| Resource  | ~Monthly Cost                              |
+| --------- | ------------------------------------------ |
+| RDS Proxy | ~$18/mo (0.015/vCPU-hour, prorated to ACU) |
+
+---
+
+### 17. SNS Filter Policies — Event-Type Routing
+
+**Module**: Modified `terraform/modules/events/`
+
+#### Why Filter Policies?
+
+All three consumer queues (generate-invoice, send-notification, audit-log) previously received every event published to the SNS topic. As the system grows with new event types (subscription.updated, subscription.cancelled, payment.received), consumers would waste Lambda invocations processing and discarding irrelevant messages.
+
+#### Solution: MessageAttribute Filter Policies
+
+SNS filter policies route events to the correct consumer based on the `eventType` MessageAttribute, which publishers already set:
+
+```javascript
+// In create-subscription handler (already implemented)
+await sns.publish({
+  TopicArn: process.env.SNS_TOPIC_ARN,
+  Message: JSON.stringify(payload),
+  MessageAttributes: {
+    eventType: { DataType: "String", StringValue: "subscription.created" },
+    tenantId: { DataType: "String", StringValue: tenantId },
+  },
+});
+```
+
+#### Routing Rules
+
+| Consumer            | Filter Policy                                    | Events Received                               |
+| ------------------- | ------------------------------------------------ | --------------------------------------------- |
+| `generate-invoice`  | `{ "eventType": ["subscription.created"] }`      | Only subscription creation (heavy processing) |
+| `send-notification` | `{ "eventType": [{"prefix": "subscription."}] }` | All subscription lifecycle events             |
+| `audit-log`         | _(no filter — receives all)_                     | Everything — compliance record                |
+
+#### Routing Flow
+
+```text
+SNS Topic
+    ├── [eventType = "subscription.created"] → SQS: generate-invoice ✓
+    ├── [eventType prefix "subscription."]    → SQS: send-notification ✓
+    └── [no filter]                           → SQS: audit-log ✓
+```
+
+With `raw_message_delivery = true`, SNS evaluates filter policies against **MessageAttributes** (not the message body). This is cost-free — SNS simply doesn't deliver non-matching messages to filtered subscriptions.
+
+#### Extending with New Event Types
+
+To add a new event type (e.g., `payment.received`):
+
+1. Publisher includes `eventType: "payment.received"` in MessageAttributes
+2. `audit-log` receives it automatically (no filter)
+3. `send-notification` does NOT receive it (prefix doesn't match)
+4. Add a new consumer for payment processing, or update `send-notification`'s filter to include `payment.*`
+
+---
+
+### 18. DLQ Reprocessor — Replay Failed Messages
+
+**Module**: `terraform/modules/dlq-reprocessor/` + `src/handlers/dlq-reprocessor/`
+
+#### Why a DLQ Reprocessor?
+
+When a consumer Lambda exhausts all retries (e.g., 5 attempts for generate-invoice), the message moves to a Dead-Letter Queue. These messages represent real business operations that failed — an invoice that wasn't generated, a notification that wasn't sent. Without a replay mechanism, operators must manually craft SQS send commands for each message.
+
+#### Solution: DLQ Reprocessor Lambda
+
+A dedicated Lambda function reads messages from any DLQ and sends them back to the corresponding processing queue:
+
+```text
+DLQ (failed messages) ──► DLQ Reprocessor Lambda ──► Processing Queue ──► Consumer Lambda
+```
+
+#### Invocation
+
+The function is **manually invoked** (not connected to an SQS event source). Operators trigger it after investigating and fixing the root cause:
+
+```bash
+# Replay all messages from the generate-invoice DLQ
+aws lambda invoke \
+  --function-name billing-platform-dev-dlq-reprocessor \
+  --payload '{
+    "dlqUrl": "https://sqs.us-east-1.amazonaws.com/123456789/billing-platform-dev-generate-invoice-dlq",
+    "targetQueueUrl": "https://sqs.us-east-1.amazonaws.com/123456789/billing-platform-dev-generate-invoice",
+    "maxMessages": 100
+  }' \
+  response.json
+```
+
+The `QUEUE_MAP` environment variable contains a pre-built mapping of all DLQ → processing queue pairs, enabling future automation (e.g., Step Functions workflow to replay all DLQs).
+
+#### Processing Flow
+
+1. Read up to 10 messages from DLQ (SQS max per receive)
+2. Send each message to the target processing queue (preserving body + attributes)
+3. Delete from DLQ only after successful send
+4. Loop until DLQ is empty or `maxMessages` is reached
+5. Log summary: total processed, replayed, failed
+
+#### Safety Features
+
+| Feature             | Implementation                                                              |
+| ------------------- | --------------------------------------------------------------------------- |
+| **Idempotency**     | Original message body/attributes preserved — consumers should be idempotent |
+| **Partial failure** | Failed sends stay in DLQ — not deleted                                      |
+| **Rate control**    | `maxMessages` cap prevents runaway reprocessing                             |
+| **Audit trail**     | Every replay logged with message IDs and counts                             |
+| **No auto-trigger** | Manual invocation only — operators decide when to replay                    |
+
+#### IAM
+
+The DLQ reprocessor's inline policy adds `sqs:SendMessage` to the shared Lambda role, scoped to the project's processing queue ARNs. The existing role already has `sqs:ReceiveMessage` and `sqs:DeleteMessage`.
+
+---
+
+### 19. CloudWatch Anomaly Detection — API Latency
+
+**Module**: `terraform/modules/observability/` (extended)
+
+#### Why Anomaly Detection?
+
+Fixed-threshold alarms (e.g., "P99 latency > 500ms") cause alert fatigue in billing systems. Traffic patterns are naturally variable — month-end invoice generation creates predictable latency spikes, weekends see lower throughput. A static threshold either:
+
+- Fires during expected batch processing spikes (too sensitive) → alert fatigue
+- Misses real degradation because the threshold is set too high → blind spots
+
+#### Solution: ML-Based Anomaly Detection
+
+CloudWatch Anomaly Detection creates a **machine-learned model** of normal API latency patterns. Instead of a fixed line, it creates a **dynamic band** that adapts to time-of-day, day-of-week, and seasonal patterns.
+
+```text
+Normal:    ─── actual latency stays WITHIN the anomaly band ───
+Anomaly:   ──▲ actual latency breaks ABOVE the upper band ──▲
+```
+
+#### Detection Flow
+
+1. **Metric**: `AWS/ApiGateway` → `Latency` (P99) for the HTTP API
+2. **Expression**: `ANOMALY_DETECTION_BAND(m1, 2)` — creates a band around the expected value
+3. **Band width**: Default 2 standard deviations (~95% of normal values fall within)
+4. **Alarm**: Fires when P99 latency exceeds the **upper** bound for 3 consecutive 5-minute periods
+5. **Training**: Model trains on ~2 weeks of data; accuracy improves over time
+
+#### Dashboard Widget
+
+A dedicated "API Latency Anomaly Detection" widget in the operations dashboard shows the P99 latency overlaid with the anomaly band. Operators can visually spot deviations and correlate with deployment events.
+
+#### Configuration
+
+| Variable                               | Default | Description                                          |
+| -------------------------------------- | ------- | ---------------------------------------------------- |
+| `anomaly_detection_band_width`         | 2       | Band width (std devs). Higher = less false positives |
+| `anomaly_detection_period`             | 300     | Metric evaluation period (seconds)                   |
+| `anomaly_detection_evaluation_periods` | 3       | Consecutive breaches before alarm fires              |
+
+#### Why Not Fixed Thresholds for Billing Latency?
+
+| Scenario                       | Fixed 500ms Threshold | Anomaly Detection       |
+| ------------------------------ | --------------------- | ----------------------- |
+| Month-end batch invoicing      | FALSE ALARM ❌        | Within band ✅          |
+| Weekend low traffic            | Silent ✅             | Silent ✅               |
+| Real DB connection issue       | May trigger ✅        | Triggers immediately ✅ |
+| Gradual degradation (10ms/day) | Misses until 500ms ❌ | Detects drift early ✅  |
+
+---
+
+### 20. X-Ray Distributed Tracing — SNS → SQS → Lambda
+
+**Module**: All Lambda modules + `terraform/modules/events/` + `terraform/modules/iam/`
+
+#### Why Distributed Tracing?
+
+In an event-driven architecture with multiple asynchronous hops (API → Lambda → SNS → SQS → Lambda), debugging latency or failures requires correlating logs across 5+ services. Without distributed tracing, operators must manually piece together request flows using timestamps and message IDs.
+
+#### Solution: AWS X-Ray Active Tracing
+
+X-Ray propagates a **trace ID** across all services in the request path. A single trace shows the full journey of a billing event from API Gateway to the final consumer Lambda:
+
+```text
+API Gateway
+  └─► Lambda (create-subscription)        [Segment: Lambda invocation]
+        └─► SNS Publish                    [Subsegment: AWS SDK call]
+              ├─► SQS (generate-invoice)   [Segment: message delivery]
+              │     └─► Lambda (gen-inv)   [Segment: consumer invocation]
+              ├─► SQS (send-notification)
+              │     └─► Lambda (send-notif)
+              └─► SQS (audit-log)
+                    └─► Lambda (audit-log)
+```
+
+#### What's Enabled
+
+| Component                     | Configuration                                                                            | Effect                                     |
+| ----------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------ |
+| **All Lambda functions** (×9) | `tracing_config { mode = "Active" }`                                                     | Creates segments for each invocation       |
+| **SNS topic**                 | `tracing_config = "Active"`                                                              | Propagates trace header to SQS subscribers |
+| **SQS → Lambda**              | Automatic                                                                                | Event source mapping carries trace context |
+| **IAM role**                  | `xray:PutTraceSegments`, `PutTelemetryRecords`, `GetSamplingRules`, `GetSamplingTargets` | Permits Lambda to emit traces              |
+
+#### Trace Flow
+
+1. **API Gateway** receives request — HTTP API v2 creates an initial trace segment when downstream Lambda has active tracing
+2. **API Lambda** runs with active tracing — X-Ray captures invocation duration, cold start, errors
+3. **SNS Publish** — with active tracing on the topic, X-Ray propagates the `X-Amzn-Trace-Id` header through to SQS
+4. **SQS → Lambda** — event source mapping automatically passes trace context to consumer Lambda
+5. **Consumer Lambda** — creates its own segment linked to the original trace
+6. **X-Ray Service Map** — shows the complete topology with latency between each hop
+
+#### Toggle
+
+All modules accept an `enable_xray_tracing` variable (default: `true`):
+
+```hcl
+# In dev environment — tracing enabled by default
+enable_xray_tracing = true
+
+# Disable for cost-sensitive environments
+enable_xray_tracing = false  # Lambda reverts to PassThrough mode
+```
+
+When disabled, Lambda uses `PassThrough` mode (propagates incoming trace headers but doesn't create new segments), and SNS uses `PassThrough` as well.
+
+#### X-Ray Console Usage
+
+```bash
+# View traces for a specific API endpoint
+# X-Ray Console → Traces → Filter: service("billing-platform-dev-create-subscription")
+
+# Find slow traces (> 1 second)
+# X-Ray Console → Analytics → Filter: responsetime > 1
+
+# Service Map shows the complete topology:
+# API Gateway → Lambda → SNS → SQS → Lambda (×3 consumers)
+```
+
+---
+
+### 21. CI/CD Pipeline — Terraform Plan on PR, Apply on Merge
+
+**Files**: `.github/workflows/terraform-plan.yml`, `.github/workflows/terraform-apply.yml`, `.github/actions/setup-terraform/action.yml`
+
+#### Why CI/CD for Infrastructure?
+
+Running `terraform plan` and `terraform apply` from developer laptops creates risks:
+
+- **No peer review**: Infrastructure changes bypass code review
+- **State corruption**: Concurrent applies from multiple engineers can corrupt state
+- **Credential sprawl**: Every developer needs long-lived AWS access keys
+- **Drift**: What was planned locally may differ from what gets applied (state changed between steps)
+
+#### Solution: GitHub Actions CI/CD
+
+Two workflows enforce a safe, auditable infrastructure change process:
+
+```text
+Developer pushes branch
+        │
+        ▼
+  Open Pull Request
+        │
+        ▼
+┌─────────────────────────────────────────────────┐
+│  terraform-plan.yml                              │
+│  ├── terraform fmt -check (style enforcement)    │
+│  ├── terraform validate (syntax check)           │
+│  ├── terraform plan -detailed-exitcode           │
+│  └── Post plan output as PR comment              │
+│       (reviewers see exact changes)              │
+└─────────────────────────────────────────────────┘
+        │
+        ▼  (approved + merged to main)
+┌─────────────────────────────────────────────────┐
+│  terraform-apply.yml                             │
+│  ├── Detect which environments changed           │
+│  ├── terraform plan (re-plan for safety)         │
+│  ├── terraform apply -auto-approve               │
+│  └── Capture outputs to GitHub Step Summary      │
+└─────────────────────────────────────────────────┘
+```
+
+#### OIDC Authentication (No Static Keys)
+
+Both workflows use **GitHub's OIDC provider** to assume an IAM role — no `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` stored as repository secrets.
+
+**IAM Trust Policy** (create in AWS Console or via bootstrap):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:YOUR_ORG/event-driven-billing-platform-aws:*"
+        }
+      }
+    }
+  ]
+}
+```
+
+**Repository Secrets Required**:
+
+| Secret             | Value                                        | Used By        |
+| ------------------ | -------------------------------------------- | -------------- |
+| `AWS_ROLE_ARN_DEV` | `arn:aws:iam::ACCOUNT_ID:role/github-tf-dev` | Both workflows |
+| _(future)_         | `AWS_ROLE_ARN_STAGING`, `AWS_ROLE_ARN_PROD`  | Staging/prod   |
+
+#### PR Workflow (`terraform-plan.yml`)
+
+| Stage            | What It Does                                    | Failure Behavior         |
+| ---------------- | ----------------------------------------------- | ------------------------ |
+| **Format Check** | `terraform fmt -check -recursive`               | Blocks PR, comments diff |
+| **Validate**     | `terraform validate` (syntax + type checking)   | Blocks PR                |
+| **Plan**         | `terraform plan -detailed-exitcode -out=tfplan` | Posts plan as PR comment |
+| **Artifact**     | Uploads `tfplan` binary (5-day retention)       | Available for inspection |
+
+The PR comment is **updated in-place** on new pushes (not duplicated). Exit code mapping:
+
+- `0` = no changes (✅)
+- `1` = error (❌ blocks PR)
+- `2` = changes detected (📋 shows diff)
+
+#### Apply Workflow (`terraform-apply.yml`)
+
+| Stage                | What It Does                                          | Safety Feature               |
+| -------------------- | ----------------------------------------------------- | ---------------------------- |
+| **Change Detection** | `dorny/paths-filter` identifies affected environments | Skips unchanged envs         |
+| **Re-Plan**          | Fresh plan against current state                      | Catches state drift          |
+| **Apply**            | `terraform apply -auto-approve tfplan`                | DynamoDB lock prevents races |
+| **Outputs**          | `terraform output -json` → Step Summary               | Visible in Actions UI        |
+
+**Concurrency control**: One apply per environment at a time. Queued runs wait (not cancelled) to preserve ordering.
+
+#### Reusable Composite Action
+
+`.github/actions/setup-terraform/action.yml` encapsulates:
+
+1. AWS credentials via OIDC
+2. Terraform CLI installation (pinned to `1.9.8`)
+3. `terraform init -input=false`
+
+Used by both workflows — change Terraform version in one place.
+
+#### Adding New Environments
+
+To add staging or production:
+
+1. Create `terraform/environments/staging/` (copy from dev)
+2. Uncomment the staging matrix entry in `terraform-plan.yml`
+3. Uncomment the `apply-staging` job in `terraform-apply.yml`
+4. Add `AWS_ROLE_ARN_STAGING` to repository secrets
+5. Create a `staging` GitHub Environment with required reviewers
+
+**Promotion chain** (uncomment in `terraform-apply.yml`):
+
+```text
+dev (auto) → staging (after dev succeeds) → prod (manual approval)
+```
+
+#### OIDC Setup Steps
+
+```bash
+# 1. Create OIDC identity provider in AWS (one-time per account)
+aws iam create-open-id-connect-provider \
+  --url "https://token.actions.githubusercontent.com" \
+  --client-id-list "sts.amazonaws.com" \
+  --thumbprint-list "6938fd4d98bab03faadb97b34396831e3780aea1"
+
+# 2. Create IAM role with the trust policy above
+aws iam create-role \
+  --role-name github-tf-dev \
+  --assume-role-policy-document file://trust-policy.json
+
+# 3. Attach permissions (scope to what Terraform needs)
+aws iam attach-role-policy \
+  --role-name github-tf-dev \
+  --policy-arn arn:aws:iam::aws:policy/AdministratorAccess
+# (In prod, use a scoped custom policy instead of AdministratorAccess)
+
+# 4. Add the role ARN as a GitHub repository secret
+# Settings → Secrets → Actions → New: AWS_ROLE_ARN_DEV
+```
 
 ---
 
@@ -1161,8 +1635,13 @@ cp -r terraform/environments/dev terraform/environments/prod
 | VPC Endpoints (×6)   | ~$58/mo (Interface)    |
 | WAF Web ACL          | $5/mo + $1/rule group  |
 | WAF Requests         | $0.60/million requests |
-| WAF Logging          | $0.50/GB (CW Logs)    |
+| WAF Logging          | $0.50/GB (CW Logs)     |
 | Pre-Token Lambda     | Free tier (shared)     |
+| RDS Proxy            | ~$18/mo (vCPU-hour)    |
+| DLQ Reprocessor      | Free tier (on-demand)  |
+| Anomaly Detection    | $0.10/alarm/month      |
+| X-Ray Tracing        | Free tier: 100K/mo     |
+| GitHub Actions CI/CD | Free tier: 2000 min/mo |
 
 **Prod recommendations**: Deploy NAT GW per AZ (~$64/mo total), add Aurora reader instance(s) for HA failover, set `deletion_protection = true` and `backup_retention_days = 35`. Enable Cognito Advanced Security in ENFORCED mode for adaptive authentication. Switch WAF managed rules to `"block"` after evaluation period. Consider disabling Interface VPC endpoints in dev to save ~$58/mo if NAT costs are lower.
 
@@ -1186,9 +1665,9 @@ cp -r terraform/environments/dev terraform/environments/prod
 - [x] IAM policies for RDS-managed secret + KMS decryption
 - [x] Add `modules/waf` — WAF v2 Web ACL with rate limiting, OWASP rules, SQLi, geo-blocking
 - [x] Add `modules/pre-token` — Cognito pre-token-generation Lambda for plan tier + feature flags
-- [ ] Add RDS Proxy for Lambda connection pooling
-- [ ] Add SNS filter policies for event-type-based routing
-- [ ] DLQ reprocessing Lambda (replay failed messages)
-- [ ] CloudWatch Anomaly Detection for API latency
-- [ ] X-Ray distributed tracing across SNS → SQS → Lambda
-- [ ] CI/CD pipeline with `terraform plan` on PR, `apply` on merge
+- [x] Add `modules/rds-proxy` — RDS Proxy for Lambda connection pooling (transparent to app code)
+- [x] Add SNS filter policies — event-type-based routing via MessageAttributes
+- [x] Add `modules/dlq-reprocessor` — DLQ replay Lambda with manual invocation + audit trail
+- [x] CloudWatch Anomaly Detection for API latency
+- [x] X-Ray distributed tracing across SNS → SQS → Lambda
+- [x] CI/CD pipeline with `terraform plan` on PR, `apply` on merge

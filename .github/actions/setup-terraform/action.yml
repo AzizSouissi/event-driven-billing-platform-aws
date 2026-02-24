@@ -1,0 +1,56 @@
+###############################################################################
+# Composite Action — Setup Terraform + AWS Credentials
+# ──────────────────────────────────────────────────────────────────────────────
+# Reusable action that handles:
+#   1. AWS credential configuration via OIDC (no long-lived keys)
+#   2. Terraform CLI installation (pinned version)
+#   3. Terraform init with backend configuration
+#
+# Used by both the PR (plan) and merge (apply) workflows to avoid duplication.
+###############################################################################
+
+name: "Setup Terraform"
+description: "Configure AWS credentials via OIDC, install Terraform, and run terraform init"
+
+inputs:
+  aws-region:
+    description: "AWS region for deployment"
+    required: false
+    default: "us-east-1"
+  aws-role-arn:
+    description: "IAM role ARN to assume via OIDC"
+    required: true
+  terraform-version:
+    description: "Terraform CLI version to install"
+    required: false
+    default: "1.9.8"
+  working-directory:
+    description: "Path to the Terraform root module"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    # ── Step 1: AWS Credentials via OIDC ─────────────────────────────── #
+    # Uses GitHub's OIDC token to assume an IAM role.
+    # No AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY stored in secrets.
+    # See README section 21 for IAM trust policy setup.
+    - name: Configure AWS credentials (OIDC)
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.aws-role-arn }}
+        aws-region: ${{ inputs.aws-region }}
+
+    # ── Step 2: Install Terraform ────────────────────────────────────── #
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+        # Disable wrapper to get raw exit codes for plan -detailed-exitcode
+        terraform_wrapper: false
+
+    # ── Step 3: Terraform Init ───────────────────────────────────────── #
+    - name: Terraform Init
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: terraform init -input=false

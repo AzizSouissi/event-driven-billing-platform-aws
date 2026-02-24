@@ -1,0 +1,189 @@
+###############################################################################
+# CD Workflow — Terraform Apply on Merge to Main
+# ──────────────────────────────────────────────────────────────────────────────
+# Design decisions:
+#
+#   • TRIGGER: Runs only on push to main (merge event) when terraform/ files
+#     are modified.  Manual dispatch is available for hotfixes.
+#
+#   • ENVIRONMENT PROTECTION:
+#     Uses GitHub Environments with required reviewers and deployment
+#     protection rules.  The `dev` environment auto-deploys; `staging`
+#     and `prod` environments should require manual approval.
+#
+#   • PLAN-BEFORE-APPLY:
+#     Even though the PR workflow ran a plan, we re-plan before apply
+#     because state may have drifted between merge and apply (e.g.,
+#     another PR merged first).  The plan artifact from the PR workflow
+#     is NOT reused — this eliminates time-of-check-to-time-of-use issues.
+#
+#   • CONCURRENCY:
+#     Only one apply runs at a time per environment.  Terraform state
+#     locking (DynamoDB) prevents corruption, but sequential execution
+#     avoids confusing interleaved applies.  Queued runs wait rather
+#     than being cancelled.
+#
+#   • POST-APPLY:
+#     Outputs are captured for downstream consumers (e.g., Lambda deploy
+#     pipeline, integration tests).
+#
+#   • SECURITY:
+#     - OIDC authentication (no long-lived keys)
+#     - GitHub Environment protection rules gate production deploys
+#     - Terraform state lock prevents concurrent corruption
+#     - Only the main branch can trigger apply
+###############################################################################
+
+name: "Terraform Apply"
+
+on:
+    push:
+        branches: [main]
+        paths:
+            - "terraform/**"
+            - ".github/workflows/terraform-apply.yml"
+            - ".github/actions/setup-terraform/**"
+    workflow_dispatch:
+        inputs:
+            environment:
+                description: "Environment to deploy"
+                required: true
+                default: "dev"
+                type: choice
+                options:
+                    - dev
+                    # - staging
+                    # - prod
+
+# One apply at a time per environment — queue, don't cancel
+concurrency:
+    group: terraform-apply-${{ github.event.inputs.environment || 'dev' }}
+    cancel-in-progress: false
+
+permissions:
+    id-token: write # OIDC → AWS STS
+    contents: read # Checkout
+    actions: read # Read workflow status
+
+env:
+    TF_IN_AUTOMATION: "true"
+    TF_INPUT: "false"
+
+jobs:
+    # ────────────────────────────────────────────────────────────────────────── #
+    # Job 1: Detect which environments changed (for push events)
+    # ────────────────────────────────────────────────────────────────────────── #
+    changes:
+        name: "Detect Changes"
+        runs-on: ubuntu-latest
+        # Skip change detection for manual dispatch
+        if: github.event_name == 'push'
+        outputs:
+            dev: ${{ steps.filter.outputs.dev }}
+            # staging: ${{ steps.filter.outputs.staging }}
+            # prod: ${{ steps.filter.outputs.prod }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Detect changed paths
+              uses: dorny/paths-filter@v3
+              id: filter
+              with:
+                  filters: |
+                      dev:
+                        - 'terraform/modules/**'
+                        - 'terraform/environments/dev/**'
+                        - '.github/actions/setup-terraform/**'
+
+    # ────────────────────────────────────────────────────────────────────────── #
+    # Job 2: Apply (per environment)
+    # ────────────────────────────────────────────────────────────────────────── #
+    apply-dev:
+        name: "Apply (dev)"
+        runs-on: ubuntu-latest
+        # Run if: manual dispatch targeting dev, OR push with dev-relevant changes
+        needs: [changes]
+        if: |
+            always() && (
+              (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev') ||
+              (github.event_name == 'push' && needs.changes.outputs.dev == 'true')
+            )
+
+        # GitHub Environment — configure protection rules in repo settings
+        environment:
+            name: dev
+            url: "https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#dashboards:name=billing-platform-dev-operations"
+
+        defaults:
+            run:
+                working-directory: terraform/environments/dev
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            # ── Setup (OIDC + Terraform + Init) ─────────────────────────────── #
+            - name: Setup Terraform & AWS
+              uses: ./.github/actions/setup-terraform
+              with:
+                  aws-role-arn: ${{ secrets.AWS_ROLE_ARN_DEV }}
+                  working-directory: terraform/environments/dev
+
+            # ── Plan (safety net — state may have changed since PR) ─────────── #
+            - name: Terraform Plan
+              id: plan
+              run: |
+                  terraform plan -no-color -out=tfplan -detailed-exitcode 2>&1 | tee plan_output.txt
+                  echo "exitcode=$?" >> "$GITHUB_OUTPUT"
+              continue-on-error: true
+
+            # ── Apply (only if plan shows changes) ──────────────────────────── #
+            - name: Terraform Apply
+              if: steps.plan.outputs.exitcode == '2'
+              run: terraform apply -no-color -auto-approve tfplan
+
+            # ── Capture Outputs ─────────────────────────────────────────────── #
+            - name: Capture Terraform Outputs
+              id: outputs
+              if: steps.plan.outputs.exitcode == '2' || steps.plan.outputs.exitcode == '0'
+              run: |
+                  echo "## Terraform Outputs" >> "$GITHUB_STEP_SUMMARY"
+                  echo '```json' >> "$GITHUB_STEP_SUMMARY"
+                  terraform output -json | jq '.' >> "$GITHUB_STEP_SUMMARY"
+                  echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+            # ── Log no-change result ────────────────────────────────────────── #
+            - name: No Changes
+              if: steps.plan.outputs.exitcode == '0'
+              run: echo "## ✅ No infrastructure changes detected" >> "$GITHUB_STEP_SUMMARY"
+
+            # ── Fail on plan error ──────────────────────────────────────────── #
+            - name: Check Plan Status
+              if: steps.plan.outputs.exitcode == '1'
+              run: |
+                  echo "## ❌ Terraform plan failed" >> "$GITHUB_STEP_SUMMARY"
+                  echo '```' >> "$GITHUB_STEP_SUMMARY"
+                  cat plan_output.txt >> "$GITHUB_STEP_SUMMARY"
+                  echo '```' >> "$GITHUB_STEP_SUMMARY"
+                  exit 1
+
+    # ────────────────────────────────────────────────────────────────────────── #
+    # Template: copy and adapt for staging/prod
+    # ────────────────────────────────────────────────────────────────────────── #
+    # apply-staging:
+    #   name: "Apply (staging)"
+    #   runs-on: ubuntu-latest
+    #   needs: [changes, apply-dev]  # Deploy after dev succeeds (promotion)
+    #   if: |
+    #     always() && (
+    #       (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging') ||
+    #       (github.event_name == 'push' && needs.changes.outputs.staging == 'true')
+    #     )
+    #   environment:
+    #     name: staging
+    #   defaults:
+    #     run:
+    #       working-directory: terraform/environments/staging
+    #   steps:
+    #     ...same as apply-dev with AWS_ROLE_ARN_STAGING...
